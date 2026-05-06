@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.napcat</groupId>
+        <artifactId>napcat-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+    <artifactId>napcat-llm-openai</artifactId>
+    <name>napcat-llm-openai</name>
+    <description>NapCat Java SDK - OpenAI compatible LLM provider</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.napcat</groupId>
+            <artifactId>napcat-agent</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.napcat</groupId>
+            <artifactId>napcat-spring-boot-starter</artifactId>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:napcat.apifox.cn)",
+      "WebFetch(domain:napneko.github.io)",
+      "Bash(D:/apache-maven-3.9.4/bin/mvn compile *)",
+      "Bash(sed -i 's/&amp;amp;&amp;/&&/g' WsClientAdapter.java WsServerAdapter.java HttpClientAdapter.java)",
+      "Bash(sed -i 's/->/->/g' WsClientAdapter.java WsServerAdapter.java HttpClientAdapter.java)",
+      "Bash(perl -pi -e 's/&amp;amp;&amp;amp;/&&/g' *.java)",
+      "Bash(perl -pi -e 's/&amp;&/&&/g' *.java)",
+      "Bash(python3 *)",
+      "Bash(sed 's/&&&&amp;/&&/g')",
+      "Bash(mv /tmp/wsc.java C:/Users/Administrator/Desktop/napcat-java/napcat-core/src/main/java/com/napcat/core/adapter/WsClientAdapter.java)",
+      "Bash(mvn compile *)"
+    ]
+  }
+}
