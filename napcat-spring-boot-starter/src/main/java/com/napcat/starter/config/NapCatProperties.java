@@ -18,6 +18,7 @@ public class NapCatProperties {
 
     @Data
     public static class AdapterProperties {
+        /** 适配器类型：websocket-client / websocket-server / http-client / http-server */
         private String type = "websocket-client";
         private WsClientProperties websocketClient = new WsClientProperties();
         private WsServerProperties websocketServer = new WsServerProperties();
@@ -55,6 +56,12 @@ public class NapCatProperties {
         private int port = 8080;
         private String path = "/napcat/webhook";
         private String token = "";
+        /** 反向 HTTP Client URL，用于主动调用 NapCat API。为空时仅被动接收上报。 */
+        private String apiUrl = "";
+        /** 反向 HTTP Client Token */
+        private String apiToken = "";
+        /** 反向 HTTP Client 超时（毫秒） */
+        private long apiTimeout = 30000;
     }
 
     @Data

@@ -2,9 +2,6 @@ package com.napcat.core.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.napcat.core.api.ApiRequest;
-import com.napcat.core.api.ApiResponse;
-import com.napcat.core.event.EventDecoder;
-import com.napcat.core.event.OB11Event;
 import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
@@ -15,6 +12,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
+/**
+ * WebSocket Server 适配器：开启 WS Server，等待 NapCat 主动连接。
+ * 适合中心化 Bot 服务，多个 NapCat 实例连接同一个 Bot 后端。
+ */
 @Slf4j
 public class WsServerAdapter implements BotAdapter {
 
@@ -22,11 +23,9 @@ public class WsServerAdapter implements BotAdapter {
     private final int port;
     private final String token;
     private final ObjectMapper mapper;
-    private final EventDecoder decoder;
 
     private WsServer server;
-    private Consumer<OB11Event> eventConsumer;
-    private Consumer<ApiResponse> responseConsumer;
+    private Consumer<String> messageHandler;
     private final Map<WebSocket, Boolean> clients = new ConcurrentHashMap<>();
 
     public WsServerAdapter(String host, int port, String token) {
@@ -38,7 +37,6 @@ public class WsServerAdapter implements BotAdapter {
         this.port = port;
         this.token = token;
         this.mapper = mapper;
-        this.decoder = new EventDecoder(mapper);
     }
 
     @Override
@@ -70,23 +68,23 @@ public class WsServerAdapter implements BotAdapter {
     }
 
     @Override
-    public void sendApiRequest(ApiRequest<?> request, Consumer<ApiResponse> callback) {
-        this.responseConsumer = callback;
+    public void sendApiRequest(ApiRequest<?> request) {
         try {
             String json = mapper.writeValueAsString(request);
+            log.debug("[{}] Sending API request: action={}, echo={}", getId(), request.getAction(), request.getEcho());
             for (WebSocket client : clients.keySet()) {
                 if (client.isOpen()) {
                     client.send(json);
                 }
             }
         } catch (Exception e) {
-            log.error("[{}] Failed to send request", getId(), e);
+            log.error("[{}] Failed to send request action={}", getId(), request.getAction(), e);
         }
     }
 
     @Override
-    public void setEventConsumer(Consumer<OB11Event> consumer) {
-        this.eventConsumer = consumer;
+    public void setMessageHandler(Consumer<String> handler) {
+        this.messageHandler = handler;
     }
 
     private class WsServer extends WebSocketServer {
@@ -99,7 +97,7 @@ public class WsServerAdapter implements BotAdapter {
         public void onOpen(WebSocket conn, ClientHandshake handshake) {
             if (token != null && !token.isEmpty()) {
                 String auth = handshake.getFieldValue("Authorization");
-                if (!auth.equals("Bearer " + token)) {
+                if (auth == null || !auth.equals("Bearer " + token)) {
                     log.warn("[{}] Unauthorized connection from {}", getId(), conn.getRemoteSocketAddress());
                     conn.close(1008, "Unauthorized");
                     return;
@@ -112,40 +110,24 @@ public class WsServerAdapter implements BotAdapter {
         @Override
         public void onClose(WebSocket conn, int code, String reason, boolean remote) {
             clients.remove(conn);
-            log.info("[{}] Client disconnected: {}", getId(), conn.getRemoteSocketAddress());
+            log.info("[{}] Client disconnected: code={}, reason={}", getId(), code, reason);
         }
 
         @Override
         public void onMessage(WebSocket conn, String message) {
-            handleMessage(message);
+            if (messageHandler != null) {
+                messageHandler.accept(message);
+            }
         }
 
         @Override
         public void onError(WebSocket conn, Exception ex) {
-            log.error("[{}] WebSocket error", getId(), ex);
+            log.error("[{}] WebSocket error from {}", getId(), conn != null ? conn.getRemoteSocketAddress() : "null", ex);
         }
 
         @Override
         public void onStart() {
-            log.info("[{}] Server started", getId());
-        }
-    }
-
-    private void handleMessage(String message) {
-        try {
-            ApiResponse response = mapper.readValue(message, ApiResponse.class);
-            if (response.getEcho() != null && responseConsumer != null) {
-                responseConsumer.accept(response);
-                return;
-            }
-            if (eventConsumer != null) {
-                OB11Event event = decoder.decode(message);
-                if (event != null) {
-                    eventConsumer.accept(event);
-                }
-            }
-        } catch (Exception e) {
-            log.error("[{}] Failed to handle message: {}", getId(), message, e);
+            log.info("[{}] Server started on {}", getId(), getAddress());
         }
     }
 }

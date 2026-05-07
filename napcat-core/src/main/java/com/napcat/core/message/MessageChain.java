@@ -3,14 +3,19 @@ package com.napcat.core.message;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import lombok.Data;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Data
+@JsonSerialize(using = MessageChainSerializer.class)
 @JsonDeserialize(using = MessageChain.MessageChainDeserializer.class)
 public class MessageChain implements List<MessageSegment> {
 
@@ -320,75 +325,186 @@ public class MessageChain implements List<MessageSegment> {
     }
 
     public static class MessageChainDeserializer extends JsonDeserializer<MessageChain> {
+
+        private static final Pattern CQ_CODE_PATTERN = Pattern.compile("\\[CQ:([^,\\]]+)(?:,([^\\]]*))?\\]");
+
         @Override
         public MessageChain deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-            // 支持 array 格式和 string 格式（CQ 码）
-            if (p.currentToken().isStructStart()) {
+            JsonNode node = p.getCodec().readTree(p);
+            if (node.isArray()) {
+                return deserializeArray(node);
+            } else if (node.isTextual()) {
+                return deserializeString(node.asText());
+            } else if (node.isObject()) {
+                // 兼容非标准单对象格式
                 MessageChain chain = new MessageChain();
-                while (p.nextToken() != com.fasterxml.jackson.core.JsonToken.END_ARRAY) {
-                    // 读取 type 和 data
-                    String type = null;
-                    Map<String, Object> data = new HashMap<>();
-                    while (p.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT) {
-                        String field = p.getCurrentName();
-                        p.nextToken();
-                        if ("type".equals(field)) {
-                            type = p.getValueAsString();
-                        } else if ("data".equals(field)) {
-                            while (p.nextToken() != com.fasterxml.jackson.core.JsonToken.END_OBJECT) {
-                                String dataKey = p.getCurrentName();
-                                p.nextToken();
-                                data.put(dataKey, p.readValueAs(Object.class));
-                            }
+                MessageSegment seg = deserializeSegment(node);
+                if (seg != null) chain.add(seg);
+                return chain;
+            }
+            return new MessageChain();
+        }
+
+        private MessageChain deserializeArray(JsonNode node) {
+            MessageChain chain = new MessageChain();
+            for (JsonNode segNode : node) {
+                MessageSegment seg = deserializeSegment(segNode);
+                if (seg != null) chain.add(seg);
+            }
+            return chain;
+        }
+
+        private MessageSegment deserializeSegment(JsonNode node) {
+            if (node == null || !node.isObject()) return null;
+            String type = node.path("type").asText("");
+            JsonNode dataNode = node.path("data");
+            MessageSegment seg = createSegment(type);
+            if (seg == null) {
+                seg = new UnknownSegment(type);
+            }
+            MessageSegment finalSeg = seg;
+            finalSeg.setType(type);
+            if (dataNode.isObject()) {
+                dataNode.fields().forEachRemaining(entry -> {
+                    finalSeg.setDataValue(entry.getKey(), convertJsonNode(entry.getValue()));
+                });
+            }
+            return finalSeg;
+        }
+
+        private Object convertJsonNode(JsonNode node) {
+            if (node == null || node.isNull()) return null;
+            if (node.isTextual()) return node.asText();
+            if (node.isInt()) return node.asInt();
+            if (node.isLong()) return node.asLong();
+            if (node.isBoolean()) return node.asBoolean();
+            if (node.isDouble()) return node.asDouble();
+            if (node.isArray()) {
+                List<Object> list = new ArrayList<>();
+                for (JsonNode item : node) list.add(convertJsonNode(item));
+                return list;
+            }
+            if (node.isObject()) {
+                Map<String, Object> map = new LinkedHashMap<>();
+                node.fields().forEachRemaining(e -> map.put(e.getKey(), convertJsonNode(e.getValue())));
+                return map;
+            }
+            return node.toString();
+        }
+
+        private MessageSegment createSegment(String type) {
+            if (type == null || type.isEmpty()) return null;
+            return switch (type) {
+                case "text" -> new TextSegment();
+                case "at" -> new AtSegment();
+                case "image" -> new ImageSegment();
+                case "face" -> new FaceSegment();
+                case "reply" -> new ReplySegment();
+                case "record" -> new RecordSegment();
+                case "video" -> new VideoSegment();
+                case "file" -> new FileSegment();
+                case "markdown" -> new MarkdownSegment();
+                case "json" -> new JsonSegment();
+                case "xml" -> new XmlSegment();
+                case "node" -> new NodeSegment();
+                case "forward" -> new ForwardSegment();
+                default -> null;
+            };
+        }
+
+        private MessageChain deserializeString(String text) {
+            MessageChain chain = new MessageChain();
+            if (text == null || text.isEmpty()) return chain;
+
+            Matcher matcher = CQ_CODE_PATTERN.matcher(text);
+            int lastEnd = 0;
+
+            while (matcher.find()) {
+                if (matcher.start() > lastEnd) {
+                    chain.text(text.substring(lastEnd, matcher.start()));
+                }
+                String type = matcher.group(1);
+                String paramStr = matcher.group(2);
+                Map<String, String> params = new LinkedHashMap<>();
+                if (paramStr != null && !paramStr.isEmpty()) {
+                    for (String pair : paramStr.split(",")) {
+                        String[] kv = pair.split("=", 2);
+                        if (kv.length == 2) {
+                            params.put(kv[0], kv[1]);
                         }
                     }
-                    MessageSegment seg = createSegment(type, data);
-                    if (seg != null) chain.add(seg);
                 }
-                return chain;
-            } else {
-                // String 格式，简单解析 CQ 码（简化版）
-                String text = p.getValueAsString();
-                return parseCqCode(text);
+                MessageSegment seg = createSegmentFromCq(type, params);
+                if (seg != null) chain.add(seg);
+                lastEnd = matcher.end();
             }
-        }
 
-        private MessageSegment createSegment(String type, Map<String, Object> data) {
-            MessageSegment seg;
-            switch (type) {
-                case "text": seg = new TextSegment(); break;
-                case "at": seg = new AtSegment(); break;
-                case "image": seg = new ImageSegment(); break;
-                case "face": seg = new FaceSegment(); break;
-                case "reply": seg = new ReplySegment(); break;
-                case "record": seg = new RecordSegment(); break;
-                case "video": seg = new VideoSegment(); break;
-                case "file": seg = new FileSegment(); break;
-                case "markdown": seg = new MarkdownSegment(); break;
-                case "json": seg = new JsonSegment(); break;
-                case "xml": seg = new XmlSegment(); break;
-                case "node": seg = new NodeSegment(); break;
-                case "forward": seg = new ForwardSegment(); break;
-                default: seg = new MessageSegment() {}; break;
+            if (lastEnd < text.length()) {
+                chain.text(text.substring(lastEnd));
             }
-            seg.setType(type);
-            if (data != null) {
-                for (Map.Entry<String, Object> entry : data.entrySet()) {
-                    seg.setDataValue(entry.getKey(), entry.getValue());
-                }
-            }
-            return seg;
-        }
-
-        private MessageChain parseCqCode(String text) {
-            MessageChain chain = new MessageChain();
-            // 简化版 CQ 码解析，仅支持 text 和 at
-            // 实际使用时建议使用 array 格式
-            if (text == null || text.isEmpty()) {
-                return chain;
-            }
-            chain.text(text);
             return chain;
+        }
+
+        private MessageSegment createSegmentFromCq(String type, Map<String, String> params) {
+            return switch (type) {
+                case "text" -> {
+                    TextSegment seg = new TextSegment();
+                    seg.setDataValue("text", params.getOrDefault("text", ""));
+                    yield seg;
+                }
+                case "at" -> {
+                    AtSegment seg = new AtSegment();
+                    seg.setDataValue("qq", params.getOrDefault("qq", "0"));
+                    yield seg;
+                }
+                case "image" -> {
+                    ImageSegment seg = new ImageSegment();
+                    seg.setDataValue("file", params.getOrDefault("file", ""));
+                    seg.setDataValue("url", params.get("url"));
+                    yield seg;
+                }
+                case "face" -> {
+                    FaceSegment seg = new FaceSegment();
+                    seg.setDataValue("id", params.getOrDefault("id", "0"));
+                    yield seg;
+                }
+                case "reply" -> {
+                    ReplySegment seg = new ReplySegment();
+                    seg.setDataValue("id", params.getOrDefault("id", "0"));
+                    yield seg;
+                }
+                case "record" -> {
+                    RecordSegment seg = new RecordSegment();
+                    seg.setDataValue("file", params.getOrDefault("file", ""));
+                    yield seg;
+                }
+                case "video" -> {
+                    VideoSegment seg = new VideoSegment();
+                    seg.setDataValue("file", params.getOrDefault("file", ""));
+                    yield seg;
+                }
+                case "file" -> {
+                    FileSegment seg = new FileSegment();
+                    seg.setDataValue("file", params.getOrDefault("file", ""));
+                    seg.setDataValue("name", params.get("name"));
+                    yield seg;
+                }
+                case "json" -> {
+                    JsonSegment seg = new JsonSegment();
+                    seg.setDataValue("data", params.getOrDefault("data", ""));
+                    yield seg;
+                }
+                case "xml" -> {
+                    XmlSegment seg = new XmlSegment();
+                    seg.setDataValue("data", params.getOrDefault("data", ""));
+                    yield seg;
+                }
+                default -> {
+                    UnknownSegment seg = new UnknownSegment(type);
+                    params.forEach(seg::setDataValue);
+                    yield seg;
+                }
+            };
         }
     }
 }

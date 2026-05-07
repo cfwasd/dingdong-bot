@@ -3,11 +3,9 @@ package com.napcat.starter.adapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.napcat.core.adapter.BotAdapter;
 import com.napcat.core.api.ApiRequest;
-import com.napcat.core.api.ApiResponse;
-import com.napcat.core.event.EventDecoder;
-import com.napcat.core.event.OB11Event;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,9 +13,18 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 
+/**
+ * HTTP Server 适配器：接收 NapCat 的 HTTP 上报（Webhook 模式）。
+ * 
+ * 同时内置反向 HTTP Client，接收上报时可主动调用 NapCat API（如 reply）。
+ * 
+ * NapCat 配置示例：
+ * <pre>
+ * "httpClients": [{"enable": true, "url": "http://bot-server:8080/napcat/webhook"}]
+ * </pre>
+ */
 @Slf4j
 @RestController
 @ConditionalOnProperty(prefix = "napcat.adapter", name = "type", havingValue = "http-server")
@@ -26,17 +33,29 @@ public class HttpServerAdapter implements BotAdapter {
     private final String path;
     private final String token;
     private final ObjectMapper mapper;
-    private final EventDecoder decoder;
 
-    private Consumer<OB11Event> eventConsumer;
-    private Consumer<ApiResponse> responseConsumer;
-    private final LinkedBlockingQueue<ApiRequest<?>> pendingRequests = new LinkedBlockingQueue<>();
+    /** 反向 HTTP Client，用于主动调用 NapCat API */
+    private final String napcatApiUrl;
+    private final String napcatApiToken;
+    private final long napcatApiTimeout;
+    private final OkHttpClient httpClient;
 
-    public HttpServerAdapter(String path, String token, ObjectMapper mapper) {
+    private Consumer<String> messageHandler;
+
+    public HttpServerAdapter(
+            ObjectMapper mapper,
+            String path, String token,
+            String napcatApiUrl, String napcatApiToken, long napcatApiTimeout) {
+        this.mapper = mapper;
         this.path = path;
         this.token = token;
-        this.mapper = mapper;
-        this.decoder = new EventDecoder(mapper);
+        this.napcatApiUrl = napcatApiUrl != null && !napcatApiUrl.isEmpty() ? napcatApiUrl : null;
+        this.napcatApiToken = napcatApiToken;
+        this.napcatApiTimeout = napcatApiTimeout > 0 ? napcatApiTimeout : 30000;
+        this.httpClient = new OkHttpClient.Builder()
+                .connectTimeout(this.napcatApiTimeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(this.napcatApiTimeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build();
     }
 
     @Override
@@ -46,11 +65,14 @@ public class HttpServerAdapter implements BotAdapter {
 
     @Override
     public void start() {
-        log.info("[{}] HTTP server adapter started, listening on POST {}", getId(), path);
+        log.info("[{}] HTTP server adapter started, path={}, napcatApiUrl={}",
+                getId(), path, napcatApiUrl != null ? napcatApiUrl : "none (reply will fail)");
     }
 
     @Override
     public void stop() {
+        httpClient.dispatcher().executorService().shutdown();
+        httpClient.connectionPool().evictAll();
         log.info("[{}] HTTP server adapter stopped", getId());
     }
 
@@ -60,15 +82,64 @@ public class HttpServerAdapter implements BotAdapter {
     }
 
     @Override
-    public void sendApiRequest(ApiRequest<?> request, Consumer<ApiResponse> callback) {
-        this.responseConsumer = callback;
-        pendingRequests.offer(request);
-        log.warn("[{}] HTTP server adapter cannot actively send API requests. Consider using HTTP client adapter alongside.", getId());
+    public void sendApiRequest(ApiRequest<?> request) {
+        if (napcatApiUrl == null) {
+            log.error("[{}] Cannot send API request: no napcatApiUrl configured. " +
+                    "HTTP server adapter needs a separate napcat.http-client.url for active API calls. " +
+                    "Action: {}, echo: {}", getId(), request.getAction(), request.getEcho());
+            if (messageHandler != null) {
+                String errorJson = String.format(
+                        "{\"status\":\"failed\",\"retcode\":-1,\"echo\":\"%s\",\"message\":\"No API URL configured\"}",
+                        request.getEcho());
+                messageHandler.accept(errorJson);
+            }
+            return;
+        }
+        try {
+            String json = mapper.writeValueAsString(request);
+            log.debug("[{}] Sending API request via reverse HTTP: action={}, echo={}",
+                    getId(), request.getAction(), request.getEcho());
+
+            okhttp3.RequestBody body = okhttp3.RequestBody.create(json, MediaType.parse("application/json"));
+            Request.Builder builder = new Request.Builder()
+                    .url(napcatApiUrl)
+                    .post(body);
+            if (napcatApiToken != null && !napcatApiToken.isEmpty()) {
+                builder.header("Authorization", "Bearer " + napcatApiToken);
+            }
+
+            httpClient.newCall(builder.build()).enqueue(new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    log.error("[{}] Reverse HTTP request failed: action={}", getId(), request.getAction(), e);
+                    if (messageHandler != null) {
+                        String errorJson = String.format(
+                                "{\"status\":\"failed\",\"retcode\":-1,\"echo\":\"%s\",\"message\":\"%s\"}",
+                                request.getEcho(), e.getMessage());
+                        messageHandler.accept(errorJson);
+                    }
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    try (ResponseBody responseBody = response.body()) {
+                        if (responseBody != null) {
+                            String respJson = responseBody.string();
+                            if (messageHandler != null) {
+                                messageHandler.accept(respJson);
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (Exception e) {
+            log.error("[{}] Failed to send API request action={}", getId(), request.getAction(), e);
+        }
     }
 
     @Override
-    public void setEventConsumer(Consumer<OB11Event> consumer) {
-        this.eventConsumer = consumer;
+    public void setMessageHandler(Consumer<String> handler) {
+        this.messageHandler = handler;
     }
 
     @PostMapping("${napcat.adapter.http-server.path:/napcat/webhook}")
@@ -81,32 +152,17 @@ public class HttpServerAdapter implements BotAdapter {
                 }
             }
 
-            String postType = extractPostType(body);
-            if (postType != null) {
-                // 事件上报
-                OB11Event event = decoder.decode(body);
-                if (event != null && eventConsumer != null) {
-                    eventConsumer.accept(event);
-                }
-            } else {
-                // API 响应
-                ApiResponse response = mapper.readValue(body, ApiResponse.class);
-                if (response.getEcho() != null && responseConsumer != null) {
-                    responseConsumer.accept(response);
-                }
+            log.debug("[{}] Received webhook: {}", getId(),
+                    body.length() > 200 ? body.substring(0, 200) + "..." : body);
+
+            if (messageHandler != null) {
+                messageHandler.accept(body);
             }
+
             return ResponseEntity.ok("ok");
         } catch (Exception e) {
             log.error("[{}] Failed to handle webhook", getId(), e);
             return ResponseEntity.status(500).body("error");
-        }
-    }
-
-    private String extractPostType(String json) {
-        try {
-            return mapper.readTree(json).path("post_type").asText(null);
-        } catch (IOException e) {
-            return null;
         }
     }
 }

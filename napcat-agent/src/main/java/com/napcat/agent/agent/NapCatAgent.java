@@ -38,6 +38,15 @@ public class NapCatAgent {
 
     public CompletableFuture<String> chat(long userId, String input, AgentConfig config) {
         Session session = sessionManager.get(userId);
+
+        // 新会话时注入 system prompt（放在第一条消息位置）
+        if (session.getHistory().isEmpty()) {
+            String prompt = config.getSystemPrompt();
+            if (prompt != null && !prompt.isBlank()) {
+                session.addMessage(new ChatMessage("system", prompt, null));
+            }
+        }
+
         session.addMessage(new ChatMessage("user", input, null));
         return reactLoop(session, config, 0);
     }
@@ -56,13 +65,15 @@ public class NapCatAgent {
         return llmProvider.chat(session, null, tools)
                 .thenCompose(response -> {
                     if (response.hasToolCalls()) {
-                        StringBuilder toolResults = new StringBuilder();
+                        // 先记录 assistant 的 tool_calls 消息到历史（OpenAI 要求）
+                        session.addMessage(ChatMessage.fromToolCalls(response.getToolCalls()));
+
                         for (LlmResponse.ToolCall tc : response.getToolCalls()) {
                             log.debug("[Agent] Tool call: {}({})", tc.getName(), tc.getArguments());
                             Object result = toolRegistry.invoke(tc.getName(), tc.getArguments());
                             String resultStr = result == null ? "null" : result.toString();
-                            toolResults.append("[").append(tc.getName()).append("] ").append(resultStr).append("\n");
                             session.addMessage(new ChatMessage("tool", resultStr, tc.getName()));
+                            log.debug("[Agent] Tool result: {} -> {}", tc.getName(), resultStr);
                         }
                         return reactLoop(session, config, round + 1);
                     } else {

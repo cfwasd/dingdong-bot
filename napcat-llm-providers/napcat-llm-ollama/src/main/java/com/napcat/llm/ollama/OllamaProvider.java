@@ -55,7 +55,23 @@ public class OllamaProvider implements LlmProvider {
             for (ChatMessage msg : session.getHistory()) {
                 ObjectNode node = messages.addObject();
                 node.put("role", msg.getRole());
-                node.put("content", msg.getContent());
+                if (msg.getContent() != null) {
+                    node.put("content", msg.getContent());
+                }
+                if (msg.getName() != null) {
+                    node.put("name", msg.getName());
+                }
+                if (msg.getToolCalls() != null && !msg.getToolCalls().isEmpty()) {
+                    ArrayNode tcArray = node.putArray("tool_calls");
+                    for (ChatMessage.ToolCallData tc : msg.getToolCalls()) {
+                        ObjectNode tcNode = tcArray.addObject();
+                        tcNode.put("id", tc.getId());
+                        tcNode.put("type", tc.getType());
+                        ObjectNode fnNode = tcNode.putObject("function");
+                        fnNode.put("name", tc.getFunction().getName());
+                        fnNode.put("arguments", tc.getFunction().getArguments());
+                    }
+                }
             }
 
             String json = mapper.writeValueAsString(root);

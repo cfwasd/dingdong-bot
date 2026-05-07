@@ -2,14 +2,21 @@ package com.napcat.core.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.napcat.core.api.ApiRequest;
-import com.napcat.core.api.ApiResponse;
-import com.napcat.core.event.OB11Event;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
 import java.io.IOException;
 import java.util.function.Consumer;
 
+/**
+ * HTTP Client 适配器：主动发送 HTTP 请求调用 NapCat API。
+ * 
+ * OneBot11 标准：POST /{action}，请求体为 params JSON。
+ * NapCat 同时兼容通用端点格式：POST 任意路径，请求体为 {"action":"...","params":{...}}。
+ * 本实现使用通用格式发送到 baseUrl。
+ * 
+ * 注意：纯 HTTP Client 模式下无法被动接收事件，需配合 HTTP Server 接收上报。
+ */
 @Slf4j
 public class HttpClientAdapter implements BotAdapter {
 
@@ -19,8 +26,7 @@ public class HttpClientAdapter implements BotAdapter {
     private final ObjectMapper mapper;
     private final OkHttpClient client;
 
-    private Consumer<OB11Event> eventConsumer;
-    private Consumer<ApiResponse> responseConsumer;
+    private Consumer<String> messageHandler;
 
     public HttpClientAdapter(String baseUrl, String token) {
         this(baseUrl, token, 30000, new ObjectMapper());
@@ -59,9 +65,11 @@ public class HttpClientAdapter implements BotAdapter {
     }
 
     @Override
-    public void sendApiRequest(ApiRequest<?> request, Consumer<ApiResponse> callback) {
+    public void sendApiRequest(ApiRequest<?> request) {
         try {
             String json = mapper.writeValueAsString(request);
+            log.debug("[{}] Sending API request: action={}, echo={}", getId(), request.getAction(), request.getEcho());
+
             RequestBody body = RequestBody.create(json, MediaType.parse("application/json"));
             Request.Builder builder = new Request.Builder()
                     .url(baseUrl)
@@ -73,27 +81,37 @@ public class HttpClientAdapter implements BotAdapter {
             client.newCall(builder.build()).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {
-                    log.error("[{}] HTTP request failed", getId(), e);
+                    log.error("[{}] HTTP request failed: action={}", getId(), request.getAction(), e);
+                    // 构造错误响应送入 messageHandler，让 NapCatApi 完成超时/错误处理
+                    if (messageHandler != null) {
+                        String errorJson = String.format(
+                                "{\"status\":\"failed\",\"retcode\":-1,\"echo\":\"%s\",\"message\":\"%s\"}",
+                                request.getEcho(), e.getMessage());
+                        messageHandler.accept(errorJson);
+                    }
                 }
 
                 @Override
                 public void onResponse(Call call, Response response) throws IOException {
-                    try (ResponseBody body = response.body()) {
-                        if (body != null) {
-                            String respJson = body.string();
-                            ApiResponse resp = mapper.readValue(respJson, ApiResponse.class);
-                            callback.accept(resp);
+                    try (ResponseBody responseBody = response.body()) {
+                        if (responseBody != null) {
+                            String respJson = responseBody.string();
+                            log.debug("[{}] HTTP response: {}", getId(),
+                                    respJson.length() > 200 ? respJson.substring(0, 200) + "..." : respJson);
+                            if (messageHandler != null) {
+                                messageHandler.accept(respJson);
+                            }
                         }
                     }
                 }
             });
         } catch (Exception e) {
-            log.error("[{}] Failed to send request", getId(), e);
+            log.error("[{}] Failed to send request action={}", getId(), request.getAction(), e);
         }
     }
 
     @Override
-    public void setEventConsumer(Consumer<OB11Event> consumer) {
-        this.eventConsumer = consumer;
+    public void setMessageHandler(Consumer<String> handler) {
+        this.messageHandler = handler;
     }
 }

@@ -3,6 +3,7 @@ package com.napcat.core.handler;
 import com.napcat.core.annotation.*;
 import com.napcat.core.config.BotProperties;
 import com.napcat.core.event.*;
+import com.napcat.core.exception.StopRoutingException;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
@@ -206,44 +207,56 @@ public class HandlerRegistry implements BotDispatcher {
     @SuppressWarnings("unchecked")
     public List<HandlerResult> dispatch(OB11Event event) {
         List<HandlerResult> results = new ArrayList<>();
+        log.info("Dispatching event to handlers: eventClass={}, registeredCommands={}, registeredHandlers={}, registeredEventHandlers={}",
+                event.getClass().getSimpleName(), commands.size(), handlers.size(), eventHandlers.size());
 
         // 1. 命令匹配（消息事件）
         if (event instanceof MessageEvent msgEvent) {
             String plainText = msgEvent.getPlainText();
+            log.info("Matching commands against plainText: '{}'", plainText);
             for (CommandEntry entry : commands.values()) {
                 if (entry.filter != null && !entry.filter.test(msgEvent)) continue;
                 CommandHandler.CommandArgs args = matchCommand(entry.template, plainText);
                 if (args != null) {
+                    log.info("Command matched: template={}, args={}", entry.template, args);
                     try {
                         entry.handler.accept(msgEvent, args);
                         results.add(new HandlerResult(true, null));
+                    } catch (StopRoutingException sre) {
+                        log.debug("Command handler stopped routing");
+                        results.add(new HandlerResult(true, null));
+                        return results;
                     } catch (Exception e) {
                         log.error("Command handler error", e);
                         results.add(new HandlerResult(false, e));
                     }
-                    return results;
                 }
             }
+            log.info("No command matched for text: '{}'", plainText);
         }
 
         // 2. 注解 handler 匹配
-        handlers.stream()
+        List<HandlerEntry<?>> matchedHandlers = handlers.stream()
                 .filter(h -> h.eventType.isInstance(event))
                 .filter(h -> h.condition == null || h.condition.test(event))
                 .sorted(Comparator.comparingInt(HandlerEntry::priority))
-                .forEach(h -> {
-                    try {
-                        ((Consumer<OB11Event>) h.executor).accept(event);
-                        results.add(new HandlerResult(true, null));
-                    } catch (Exception e) {
-                        log.error("Handler error", e);
-                        results.add(new HandlerResult(false, e));
-                    }
-                });
+                .toList();
+        log.info("Matched annotation handlers: count={}", matchedHandlers.size());
+        matchedHandlers.forEach(h -> {
+            try {
+                log.info("Executing annotation handler: eventType={}, priority={}", h.eventType.getSimpleName(), h.priority);
+                ((Consumer<OB11Event>) h.executor).accept(event);
+                results.add(new HandlerResult(true, null));
+            } catch (Exception e) {
+                log.error("Handler error", e);
+                results.add(new HandlerResult(false, e));
+            }
+        });
 
         // 3. 接口 handler 匹配
         List<Consumer<OB11Event>> consumers = eventHandlers.get(event.getClass());
         if (consumers != null) {
+            log.info("Matched interface handlers: count={}", consumers.size());
             consumers.forEach(c -> {
                 try {
                     c.accept(event);
@@ -255,6 +268,8 @@ public class HandlerRegistry implements BotDispatcher {
             });
         }
 
+        log.info("Dispatch completed: successCount={}, totalHandlers={}",
+                results.stream().filter(HandlerResult::success).count(), results.size());
         return results;
     }
 

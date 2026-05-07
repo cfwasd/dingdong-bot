@@ -19,16 +19,27 @@ public class SessionManager {
         this.ttlSeconds = ttlSeconds;
     }
 
+    /**
+     * 获取或创建用户会话。原子操作，消除 check-then-act 竞态条件。
+     */
     public Session get(long userId) {
-        Session session = sessions.get(userId);
-        if (session == null || session.isExpired(ttlSeconds)) {
-            if (session != null) {
-                log.debug("Session expired for user: {}", userId);
-            }
-            session = new Session(userId);
-            sessions.put(userId, session);
+        Session existing = sessions.get(userId);
+        if (existing != null && !existing.isExpired(ttlSeconds)) {
+            return existing;
         }
-        return session;
+
+        // 过期或不存在 → 原子创建新会话
+        Session newSession = new Session(userId);
+        Session old = sessions.put(userId, newSession);
+        if (old != null && !old.isExpired(ttlSeconds)) {
+            // 另一个线程抢先创建了有效会话，恢复它
+            sessions.put(userId, old);
+            return old;
+        }
+        if (old != null) {
+            log.debug("Session expired and replaced for user: {}", userId);
+        }
+        return newSession;
     }
 
     public void clear(long userId) {

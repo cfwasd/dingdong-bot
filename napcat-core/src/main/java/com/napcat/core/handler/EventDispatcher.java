@@ -40,9 +40,17 @@ public class EventDispatcher {
     public void dispatch(OB11Event event) {
         if (event == null) return;
 
-        if (properties.isIgnoreSelfMessage() && event.getSelfId() == properties.getSelfId()) {
+        if (properties.isIgnoreSelfMessage()
+                && event instanceof com.napcat.core.event.MessageEvent msgEvent
+                && msgEvent.getUserId() == properties.getSelfId()) {
+            log.info("Ignoring self message, userId={}", msgEvent.getUserId());
             return;
         }
+
+        log.info("Dispatching event: type={}, selfId={}, class={}",
+                event.getPostType(), event.getSelfId(), event.getClass().getSimpleName());
+
+        com.napcat.core.context.EventContext ctx = com.napcat.core.context.EventContextHolder.get();
 
         if (sync) {
             try {
@@ -52,10 +60,15 @@ public class EventDispatcher {
             }
         } else {
             executor.execute(() -> {
+                if (ctx != null) {
+                    com.napcat.core.context.EventContextHolder.set(ctx);
+                }
                 try {
                     registry.dispatch(event);
                 } catch (Exception e) {
                     log.error("Event dispatch error", e);
+                } finally {
+                    com.napcat.core.context.EventContextHolder.clear();
                 }
             });
         }

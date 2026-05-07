@@ -26,7 +26,7 @@ public class HelloBot {
 
     @OnGroupMessage
     public void onGroup(GroupMessageEvent event) {
-        if (event.getMessage().contains("在吗")) {
+        if (event.getRawMessage().contains("在吗")) {
             event.reply("在的！");
         }
     }

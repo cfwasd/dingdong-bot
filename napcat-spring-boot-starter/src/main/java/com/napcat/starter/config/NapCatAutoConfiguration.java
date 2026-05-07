@@ -5,13 +5,12 @@ import com.napcat.agent.agent.NapCatAgent;
 import com.napcat.agent.llm.LlmProvider;
 import com.napcat.agent.session.SessionManager;
 import com.napcat.agent.tool.ToolRegistry;
-import com.napcat.core.adapter.BotAdapter;
-import com.napcat.core.adapter.HttpClientAdapter;
-import com.napcat.core.adapter.WsClientAdapter;
-import com.napcat.core.adapter.WsServerAdapter;
+import com.napcat.core.adapter.*;
 import com.napcat.core.api.NapCatApi;
 import com.napcat.core.config.BotProperties;
-import com.napcat.core.handler.*;
+import com.napcat.core.handler.EventDispatcher;
+import com.napcat.core.handler.HandlerRegistry;
+import com.napcat.starter.adapter.HttpServerAdapter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -51,12 +50,16 @@ public class NapCatAutoConfiguration {
         return bp;
     }
 
+    // ================================================================
+    // Adapter
+    // ================================================================
+
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "napcat.adapter", name = "type", havingValue = "websocket-client", matchIfMissing = true)
     public BotAdapter wsClientBotAdapter(NapCatProperties props, ObjectMapper mapper) {
         var c = props.getAdapter().getWebsocketClient();
-        return new WsClientAdapter(c.getUrl(), c.getToken(), c.getReconnectInterval(), c.getHeartInterval(), mapper);
+        return new WsClientAdapter(c.getUrl(), c.getToken(), c.getReconnectInterval(), mapper);
     }
 
     @Bean
@@ -77,8 +80,28 @@ public class NapCatAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public NapCatApi napCatApi(List<BotAdapter> adapters) {
-        return new NapCatApi(adapters.isEmpty() ? null : adapters.get(0));
+    @ConditionalOnProperty(prefix = "napcat.adapter", name = "type", havingValue = "http-server")
+    public BotAdapter httpServerBotAdapter(NapCatProperties props, ObjectMapper mapper) {
+        var c = props.getAdapter().getHttpServer();
+        return new HttpServerAdapter(mapper,
+                c.getPath(), c.getToken(),
+                c.getApiUrl(), c.getApiToken(), c.getApiTimeout());
+    }
+
+    // ================================================================
+    // API + Router + Dispatcher
+    // ================================================================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public NapCatApi napCatApi(List<BotAdapter> adapters, ObjectMapper mapper) {
+        return new NapCatApi(adapters.isEmpty() ? null : adapters.get(0), mapper, 30000);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MessageRouter messageRouter(ObjectMapper mapper, NapCatApi api) {
+        return new MessageRouter(mapper, api);
     }
 
     @Bean
@@ -89,7 +112,8 @@ public class NapCatAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public EventDispatcher eventDispatcher(HandlerRegistry registry, BotProperties botProperties, NapCatApi api, NapCatProperties props) {
+    public EventDispatcher eventDispatcher(HandlerRegistry registry, BotProperties botProperties,
+                                           NapCatApi api, NapCatProperties props) {
         var execProps = props.getCore().getEventExecutor();
         boolean sync = props.getCore().isSyncEventProcessing();
         Executor executor = new ThreadPoolExecutor(
@@ -106,6 +130,10 @@ public class NapCatAutoConfiguration {
         );
         return new EventDispatcher(registry, botProperties, api, sync, executor);
     }
+
+    // ================================================================
+    // Agent
+    // ================================================================
 
     @Bean
     @ConditionalOnProperty(prefix = "napcat.agent", name = "enabled", havingValue = "true")
@@ -139,14 +167,20 @@ public class NapCatAutoConfiguration {
                 props.getAgent().getSystemPrompt(), props.getAgent().getMaxReactRounds());
     }
 
+    // ================================================================
+    // 后处理器 + 生命周期
+    // ================================================================
+
     @Bean
     public NapCatBeanPostProcessor napCatBeanPostProcessor(HandlerRegistry registry, ApplicationContext ctx) {
         return new NapCatBeanPostProcessor(registry, ctx);
     }
 
     @Bean
-    public NapCatLifecycle napCatLifecycle(List<BotAdapter> adapters, EventDispatcher dispatcher, NapCatApi api,
-                                           HandlerRegistry registry, ApplicationContext ctx) {
-        return new NapCatLifecycle(adapters, dispatcher, api, registry, ctx);
+    public NapCatLifecycle napCatLifecycle(List<BotAdapter> adapters, EventDispatcher dispatcher,
+                                           NapCatApi api, HandlerRegistry registry,
+                                           MessageRouter messageRouter,
+                                           ApplicationContext ctx) {
+        return new NapCatLifecycle(adapters, dispatcher, api, registry, messageRouter, ctx);
     }
 }

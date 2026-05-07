@@ -2,8 +2,6 @@ package com.napcat.core.adapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.napcat.core.api.ApiRequest;
-import com.napcat.core.api.ApiResponse;
-import com.napcat.core.event.OB11Event;
 import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -15,31 +13,32 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
+/**
+ * WebSocket Client 适配器：主动连接 NapCat 的 WebSocket Server。
+ * 双工通信，推荐模式。
+ */
 @Slf4j
 public class WsClientAdapter implements BotAdapter {
 
     private final String url;
     private final String token;
     private final long reconnectInterval;
-    private final long heartInterval;
     private final ObjectMapper mapper;
 
     private WebSocketClient client;
-    private Consumer<OB11Event> eventConsumer;
-    private Consumer<ApiResponse> responseConsumer;
+    private Consumer<String> messageHandler;
     private volatile boolean running = false;
     private final AtomicInteger reconnectAttempt = new AtomicInteger(0);
-    private ScheduledExecutorService heartbeatExecutor;
+    private ScheduledExecutorService reconnectScheduler;
 
     public WsClientAdapter(String url, String token) {
-        this(url, token, 5000, 30000, new ObjectMapper());
+        this(url, token, 5000, new ObjectMapper());
     }
 
-    public WsClientAdapter(String url, String token, long reconnectInterval, long heartInterval, ObjectMapper mapper) {
+    public WsClientAdapter(String url, String token, long reconnectInterval, ObjectMapper mapper) {
         this.url = url;
         this.token = token;
         this.reconnectInterval = reconnectInterval;
-        this.heartInterval = heartInterval;
         this.mapper = mapper;
     }
 
@@ -51,6 +50,11 @@ public class WsClientAdapter implements BotAdapter {
     @Override
     public void start() {
         running = true;
+        reconnectScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "napcat-ws-reconnect");
+            t.setDaemon(true);
+            return t;
+        });
         connect();
     }
 
@@ -62,20 +66,18 @@ public class WsClientAdapter implements BotAdapter {
                 public void onOpen(ServerHandshake handshake) {
                     log.info("[{}] WebSocket connected", getId());
                     reconnectAttempt.set(0);
-                    if (heartInterval > 0) {
-                        startHeartbeat();
-                    }
                 }
 
                 @Override
                 public void onMessage(String message) {
-                    handleMessage(message);
+                    if (messageHandler != null) {
+                        messageHandler.accept(message);
+                    }
                 }
 
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
-                    log.warn("[{}] WebSocket closed: code={}, reason={}", getId(), code, reason);
-                    stopHeartbeat();
+                    log.warn("[{}] WebSocket closed: code={}, reason={}, remote={}", getId(), code, reason, remote);
                     scheduleReconnect();
                 }
 
@@ -94,59 +96,22 @@ public class WsClientAdapter implements BotAdapter {
         }
     }
 
-    private void handleMessage(String message) {
-        try {
-            // 先尝试解析为 API 响应
-            ApiResponse response = mapper.readValue(message, ApiResponse.class);
-            if (response.getEcho() != null && responseConsumer != null) {
-                responseConsumer.accept(response);
-                return;
-            }
-            // 否则解析为事件
-            if (eventConsumer != null) {
-                com.napcat.core.event.EventDecoder decoder = new com.napcat.core.event.EventDecoder(mapper);
-                OB11Event event = decoder.decode(message);
-                if (event != null) {
-                    eventConsumer.accept(event);
-                }
-            }
-        } catch (Exception e) {
-            log.error("[{}] Failed to handle message: {}", getId(), message, e);
-        }
-    }
-
-    private void startHeartbeat() {
-        heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "ws-heartbeat-" + getId());
-            t.setDaemon(true);
-            return t;
-        });
-        heartbeatExecutor.scheduleAtFixedRate(() -> {
-            if (client != null && client.isOpen()) {
-                client.send("{\"meta_event_type\":\"heartbeat\"}");
-            }
-        }, heartInterval, heartInterval, TimeUnit.MILLISECONDS);
-    }
-
-    private void stopHeartbeat() {
-        if (heartbeatExecutor != null) {
-            heartbeatExecutor.shutdownNow();
-            heartbeatExecutor = null;
-        }
-    }
-
     private void scheduleReconnect() {
         if (!running) return;
         int attempt = reconnectAttempt.incrementAndGet();
         long delay = Math.min(reconnectInterval * attempt, 60000);
         log.info("[{}] Reconnecting in {}ms (attempt {})", getId(), delay, attempt);
-        Executors.newSingleThreadScheduledExecutor().schedule(this::connect, delay, TimeUnit.MILLISECONDS);
+        if (reconnectScheduler != null && !reconnectScheduler.isShutdown()) {
+            reconnectScheduler.schedule(this::connect, delay, TimeUnit.MILLISECONDS);
+        }
     }
 
     @Override
     public void stop() {
         running = false;
-        stopHeartbeat();
+        if (reconnectScheduler != null) {
+            reconnectScheduler.shutdown();
+        }
         if (client != null) {
             client.close();
         }
@@ -158,22 +123,22 @@ public class WsClientAdapter implements BotAdapter {
     }
 
     @Override
-    public void sendApiRequest(ApiRequest<?> request, Consumer<ApiResponse> callback) {
-        this.responseConsumer = callback;
+    public void sendApiRequest(ApiRequest<?> request) {
         try {
             String json = mapper.writeValueAsString(request);
+            log.debug("[{}] Sending API request: action={}, echo={}", getId(), request.getAction(), request.getEcho());
             if (client != null && client.isOpen()) {
                 client.send(json);
             } else {
-                log.warn("[{}] WebSocket not connected, cannot send request", getId());
+                log.warn("[{}] WebSocket not connected, cannot send request action={}", getId(), request.getAction());
             }
         } catch (Exception e) {
-            log.error("[{}] Failed to send request", getId(), e);
+            log.error("[{}] Failed to send request action={}", getId(), request.getAction(), e);
         }
     }
 
     @Override
-    public void setEventConsumer(Consumer<OB11Event> consumer) {
-        this.eventConsumer = consumer;
+    public void setMessageHandler(Consumer<String> handler) {
+        this.messageHandler = handler;
     }
 }
