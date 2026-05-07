@@ -69,6 +69,14 @@ public class OpenAiProvider implements LlmProvider {
                 if (msg.getName() != null) {
                     node.put("name", msg.getName());
                 }
+                // reasoning/thinking 模式需要回传 reasoning_content
+                if (msg.getReasoningContent() != null && !msg.getReasoningContent().isEmpty()) {
+                    node.put("reasoning_content", msg.getReasoningContent());
+                }
+                // tool 角色消息需要包含 tool_call_id
+                if ("tool".equals(msg.getRole()) && msg.getToolCallId() != null) {
+                    node.put("tool_call_id", msg.getToolCallId());
+                }
                 // 序列化 assistant 的 tool_calls
                 if (msg.getToolCalls() != null && !msg.getToolCalls().isEmpty()) {
                     ArrayNode tcArray = node.putArray("tool_calls");
@@ -135,6 +143,19 @@ public class OpenAiProvider implements LlmProvider {
                         }
                         String respJson = body.string();
                         log.debug("OpenAI response: {}", respJson);
+
+                        if (!response.isSuccessful()) {
+                            int statusCode = response.code();
+                            if (statusCode >= 400 && statusCode < 500) {
+                                log.warn("OpenAI API client error ({}): {}", statusCode, respJson);
+                                future.completeExceptionally(new RuntimeException("API请求错误: " + statusCode));
+                            } else {
+                                log.error("OpenAI API server error ({}): {}", statusCode, respJson);
+                                future.completeExceptionally(new RuntimeException("服务器错误: " + statusCode));
+                            }
+                            return;
+                        }
+
                         LlmResponse llmResp = parseResponse(respJson);
                         future.complete(llmResp);
                     } catch (Exception e) {
@@ -149,13 +170,34 @@ public class OpenAiProvider implements LlmProvider {
         return future;
     }
 
+
     private LlmResponse parseResponse(String json) {
         try {
             JsonNode root = mapper.readTree(json);
+
+            if (root.has("error")) {
+                JsonNode error = root.get("error");
+                String errorMsg = error.path("message").asText("Unknown error");
+                throw new RuntimeException("OpenAI API error: " + errorMsg);
+            }
+
             JsonNode choice = root.path("choices").get(0);
+            if (choice == null || choice.isNull()) {
+                throw new RuntimeException("No choices in OpenAI response");
+            }
+
             JsonNode message = choice.path("message");
+            if (message == null || message.isNull()) {
+                throw new RuntimeException("No message in OpenAI response choice");
+            }
 
             LlmResponse response = new LlmResponse();
+            
+            // 解析 reasoning_content（如果存在）
+            if (message.has("reasoning_content")) {
+                response.setReasoningContent(message.path("reasoning_content").asText());
+            }
+            
             response.setContent(message.path("content").asText());
 
             JsonNode toolCalls = message.path("tool_calls");
@@ -177,3 +219,4 @@ public class OpenAiProvider implements LlmProvider {
         }
     }
 }
+// ... existing code ...

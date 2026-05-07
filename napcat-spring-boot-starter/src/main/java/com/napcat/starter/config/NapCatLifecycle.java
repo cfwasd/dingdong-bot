@@ -1,14 +1,19 @@
 package com.napcat.starter.config;
 
+import com.napcat.agent.agent.NapCatAgent;
 import com.napcat.core.adapter.BotAdapter;
 import com.napcat.core.adapter.MessageRouter;
 import com.napcat.core.api.NapCatApi;
+import com.napcat.core.config.BotProperties;
 import com.napcat.core.context.EventContext;
 import com.napcat.core.context.EventContextHolder;
+import com.napcat.core.event.GroupMessageEvent;
 import com.napcat.core.event.OB11Event;
 import com.napcat.core.handler.EventDispatcher;
 import com.napcat.core.handler.HandlerRegistry;
+import com.napcat.core.message.MessageChain;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.SmartLifecycle;
 
@@ -26,17 +31,24 @@ public class NapCatLifecycle implements SmartLifecycle {
     private final NapCatApi api;
     private final HandlerRegistry registry;
     private final MessageRouter messageRouter;
+    private final BotProperties botProperties;
+    private final ObjectProvider<NapCatAgent> agentProvider;
     private final ApplicationContext ctx;
     private volatile boolean running = false;
 
     public NapCatLifecycle(List<BotAdapter> adapters, EventDispatcher dispatcher,
                            NapCatApi api, HandlerRegistry registry,
-                           MessageRouter messageRouter, ApplicationContext ctx) {
+                           MessageRouter messageRouter,
+                           BotProperties botProperties,
+                           ObjectProvider<NapCatAgent> agentProvider,
+                           ApplicationContext ctx) {
         this.adapters = adapters;
         this.dispatcher = dispatcher;
         this.api = api;
         this.registry = registry;
         this.messageRouter = messageRouter;
+        this.botProperties = botProperties;
+        this.agentProvider = agentProvider;
         this.ctx = ctx;
     }
 
@@ -44,6 +56,31 @@ public class NapCatLifecycle implements SmartLifecycle {
     public void start() {
         // 事件管道：MessageRouter → EventDispatcher
         messageRouter.setEventConsumer(this::onEvent);
+
+        // at-me-trigger 兜底：被 @ 时自动走 Agent
+        if (botProperties.isAtMeTrigger()) {
+            NapCatAgent agent = agentProvider.getIfAvailable();
+            if (agent != null) {
+                registry.setFallbackHandler(event -> {
+                    if (event instanceof GroupMessageEvent ge
+                            && (ge.getMessage().isAt(botProperties.getSelfId())
+                                || botProperties.matchesWakeWord(ge.getMessage().toPlainText()))) {
+                        String prompt = ge.getMessage().toPlainText();
+                        com.napcat.agent.agent.AgentConfig config =
+                                com.napcat.agent.agent.AgentConfig.builder()
+                                        .showToolProcess(true)
+                                        .ackCallback(() -> ge.reply(MessageChain.ofFace(277)))
+                                        .build();
+                        agent.chat(ge.getUserId(), ge.getGroupId(), prompt, config,
+                                toolMsg -> ge.reply(toolMsg))
+                                .thenAccept(reply -> ge.reply(reply));
+                    }
+                });
+                log.info("at-me-trigger fallback registered (agent enabled)");
+            } else {
+                log.debug("at-me-trigger is enabled but no Agent bean available");
+            }
+        }
 
         // 所有适配器共享同一个 MessageRouter
         for (BotAdapter adapter : adapters) {

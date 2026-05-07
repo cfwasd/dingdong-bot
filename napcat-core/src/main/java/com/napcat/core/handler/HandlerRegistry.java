@@ -26,8 +26,18 @@ public class HandlerRegistry implements BotDispatcher {
     private final Map<String, CommandEntry> commands = new ConcurrentHashMap<>();
     private final Map<Class<? extends OB11Event>, List<Consumer<OB11Event>>> eventHandlers = new ConcurrentHashMap<>();
 
+    /** 当事件未被任何 handler 处理时的兜底回调（用于 at-me-trigger 等场景） */
+    private Consumer<OB11Event> fallbackHandler;
+
     public HandlerRegistry(BotProperties properties) {
         this.properties = properties;
+    }
+
+    /**
+     * 设置兜底 handler。当事件经过命令/注解/接口全部匹配后无任何 handler 命中时调用。
+     */
+    public void setFallbackHandler(Consumer<OB11Event> fallbackHandler) {
+        this.fallbackHandler = fallbackHandler;
     }
 
     @Override
@@ -276,6 +286,18 @@ public class HandlerRegistry implements BotDispatcher {
             });
         }
 
+        // 4. 兜底 handler（at-me-trigger 等）
+        if (results.isEmpty() && fallbackHandler != null) {
+            log.info("No handler matched, invoking fallback handler");
+            try {
+                fallbackHandler.accept(event);
+                results.add(new HandlerResult(true, null));
+            } catch (Exception e) {
+                log.error("Fallback handler error", e);
+                results.add(new HandlerResult(false, e));
+            }
+        }
+
         log.info("Dispatch completed: successCount={}, totalHandlers={}",
                 results.stream().filter(HandlerResult::success).count(), results.size());
         return results;
@@ -341,6 +363,15 @@ public class HandlerRegistry implements BotDispatcher {
                     msg.getMessage().isAt(properties.getSelfId()));
         }
 
+        Optional<WakeFilter> wakeOpt = annotations.stream()
+                .filter(a -> a instanceof WakeFilter)
+                .map(a -> (WakeFilter) a)
+                .findFirst();
+        if (wakeOpt.isPresent()) {
+            filters.add(e -> e instanceof MessageEvent msg &&
+                    properties.matchesWakeWord(msg.getPlainText()));
+        }
+
         Optional<RoleFilter> roleOpt = annotations.stream()
                 .filter(a -> a instanceof RoleFilter)
                 .map(a -> (RoleFilter) a)
@@ -362,13 +393,10 @@ public class HandlerRegistry implements BotDispatcher {
         return filters.isEmpty() ? null : e -> filters.stream().allMatch(f -> f.test(e));
     }
 
-    private Predicate<MessageEvent> createFilter(Set<Annotation> annotations) {
-        return e -> true;
-    }
-
     private int calculatePriority(Set<Annotation> annotations) {
         if (annotations.stream().anyMatch(a -> a instanceof Command)) return 1;
         if (annotations.stream().anyMatch(a -> a instanceof MentionFilter)) return 10;
+        if (annotations.stream().anyMatch(a -> a instanceof WakeFilter)) return 10;
         return 100;
     }
 

@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -74,6 +75,34 @@ public class OllamaProvider implements LlmProvider {
                 }
             }
 
+            // 序列化工具定义 — Ollama 0.3+ 支持 function calling
+            if (tools != null && !tools.isEmpty()) {
+                ArrayNode toolsNode = root.putArray("tools");
+                for (ToolSchema tool : tools) {
+                    ObjectNode toolNode = toolsNode.addObject();
+                    toolNode.put("type", "function");
+                    ObjectNode func = toolNode.putObject("function");
+                    func.put("name", tool.getName());
+                    func.put("description", tool.getDescription());
+                    ObjectNode params = func.putObject("parameters");
+                    params.put("type", "object");
+                    ObjectNode props = params.putObject("properties");
+                    for (var entry : tool.getParameters().entrySet()) {
+                        ObjectNode prop = props.putObject(entry.getKey());
+                        prop.put("type", entry.getValue().getType());
+                        prop.put("description", entry.getValue().getDescription());
+                        if (entry.getValue().getEnums() != null && !entry.getValue().getEnums().isEmpty()) {
+                            ArrayNode enums = prop.putArray("enum");
+                            entry.getValue().getEnums().forEach(enums::add);
+                        }
+                    }
+                    ArrayNode req = params.putArray("required");
+                    if (tool.getRequired() != null) {
+                        tool.getRequired().forEach(req::add);
+                    }
+                }
+            }
+
             String json = mapper.writeValueAsString(root);
             RequestBody body = RequestBody.create(json, MediaType.parse("application/json"));
             Request request = new Request.Builder()
@@ -107,7 +136,32 @@ public class OllamaProvider implements LlmProvider {
         try {
             JsonNode root = mapper.readTree(json);
             LlmResponse resp = new LlmResponse();
-            resp.setContent(root.path("message").path("content").asText());
+            JsonNode message = root.path("message");
+
+            // 文本内容
+            resp.setContent(message.path("content").asText(null));
+
+            // tool_calls — Ollama 0.3+ 格式
+            JsonNode toolCalls = message.path("tool_calls");
+            if (toolCalls.isArray() && !toolCalls.isEmpty()) {
+                List<LlmResponse.ToolCall> calls = new ArrayList<>();
+                for (JsonNode tc : toolCalls) {
+                    LlmResponse.ToolCall call = new LlmResponse.ToolCall();
+                    call.setId(tc.path("id").asText(null));
+                    JsonNode fn = tc.path("function");
+                    call.setName(fn.path("name").asText());
+                    // arguments 可能是字符串或对象
+                    JsonNode args = fn.path("arguments");
+                    if (args.isObject()) {
+                        call.setArguments(args.toString());
+                    } else {
+                        call.setArguments(args.asText("{}"));
+                    }
+                    calls.add(call);
+                }
+                resp.setToolCalls(calls);
+            }
+
             return resp;
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse Ollama response", e);

@@ -7,6 +7,7 @@ import java.util.List;
 @Data
 public class LlmResponse {
     private String content;
+    private String reasoningContent;
     private List<ToolCall> toolCalls;
 
     @Data

@@ -19,6 +19,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @AutoConfiguration
 @EnableConfigurationProperties(NapCatProperties.class)
+@ComponentScan("com.napcat")
 public class NapCatAutoConfiguration {
 
     @Bean
@@ -47,6 +49,7 @@ public class NapCatAutoConfiguration {
         bp.setAtMeTrigger(props.getBot().isAtMeTrigger());
         bp.setIgnoreSelfMessage(props.getBot().isIgnoreSelfMessage());
         bp.setSuperUsers(props.getBot().getSuperUsers());
+        bp.setWakeWords(props.getBot().getWakeWords());
         return bp;
     }
 
@@ -140,10 +143,26 @@ public class NapCatAutoConfiguration {
     @ConditionalOnMissingBean
     public ToolRegistry toolRegistry(ApplicationContext ctx) {
         ToolRegistry registry = new ToolRegistry();
-        Map<String, Object> tools = ctx.getBeansWithAnnotation(com.napcat.core.annotation.Tool.class);
-        for (Object bean : tools.values()) {
-            registry.register(bean);
+        // 扫描所有 Bean，检查是否有方法标注了 @Tool（@Tool 是 METHOD 级别注解）
+        for (String name : ctx.getBeanDefinitionNames()) {
+            try {
+                Object bean = ctx.getBean(name);
+                Class<?> clazz = bean.getClass();
+                // 跳过 CGLIB 代理，取原始类
+                while (clazz.getName().contains("$$")) {
+                    clazz = clazz.getSuperclass();
+                }
+                for (java.lang.reflect.Method method : clazz.getDeclaredMethods()) {
+                    if (method.isAnnotationPresent(com.napcat.core.annotation.Tool.class)) {
+                        registry.register(bean);
+                        break;  // 一个 bean 只注册一次
+                    }
+                }
+            } catch (Exception ignored) {
+                // 跳过无法获取的 bean（如某些框架内部 bean）
+            }
         }
+        log.info("ToolRegistry initialized with {} tools", registry.getSchemas().size());
         return registry;
     }
 
@@ -151,7 +170,8 @@ public class NapCatAutoConfiguration {
     @ConditionalOnProperty(prefix = "napcat.agent", name = "enabled", havingValue = "true")
     @ConditionalOnMissingBean
     public SessionManager sessionManager(NapCatProperties props) {
-        return new SessionManager(props.getAgent().getSessionTtl());
+        return new SessionManager(props.getAgent().getSessionTtl(),
+                props.getAgent().getMaxHistoryMessages());
     }
 
     @Bean
@@ -180,7 +200,10 @@ public class NapCatAutoConfiguration {
     public NapCatLifecycle napCatLifecycle(List<BotAdapter> adapters, EventDispatcher dispatcher,
                                            NapCatApi api, HandlerRegistry registry,
                                            MessageRouter messageRouter,
+                                           BotProperties botProperties,
+                                           ObjectProvider<NapCatAgent> agentProvider,
                                            ApplicationContext ctx) {
-        return new NapCatLifecycle(adapters, dispatcher, api, registry, messageRouter, ctx);
+        return new NapCatLifecycle(adapters, dispatcher, api, registry, messageRouter,
+                botProperties, agentProvider, ctx);
     }
 }

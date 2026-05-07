@@ -71,6 +71,8 @@ public class NapCatProperties {
         private boolean atMeTrigger = true;
         private boolean ignoreSelfMessage = true;
         private List<Long> superUsers = new ArrayList<>();
+        /** 关键词唤醒列表。消息包含任一唤醒词时视为触发，无需 @。默认：["机器人", "bot"] */
+        private List<String> wakeWords = new ArrayList<>(List.of("机器人", "bot"));
     }
 
     @Data
@@ -96,9 +98,39 @@ public class NapCatProperties {
     public static class AgentProperties {
         private boolean enabled = false;
         private int maxReactRounds = 5;
-        private String systemPrompt = "";
+        private String systemPrompt = "你是一个有用的 QQ 助手。你可以使用提供的工具（tools）来完成任务。\n"
+                + "重要规则：\n"
+                + "1. 如果需要实时信息或联网搜索，必须调用 web_search 工具，不要直接说'无法访问网络'。\n"
+                + "2. 如果需要查看某个链接的内容，使用 fetch_url 工具。\n"
+                + "3. 如果询问当前时间或日期，使用 get_current_time 工具。\n"
+                + "4. 基于工具返回的结果回答用户，保持简洁、友好。\n"
+                + "5. 如果所有工具都无法满足用户需求，再礼貌地说明限制。";
         private long timeoutPerRound = 30000;
         private long sessionTtl = 3600;
+        /** 是否将工具调用过程发送到聊天 */
+        private boolean showToolProcess = false;
+        /** 会话历史最大消息条数，超出时自动截断（保留 system + 最近 N 条） */
+        private int maxHistoryMessages = 50;
+        /** 内置工具开关 */
+        private BuiltinToolsProperties builtin = new BuiltinToolsProperties();
+    }
+
+    @Data
+    public static class BuiltinToolsProperties {
+        /** 联网搜索 (DuckDuckGo, 免费) */
+        private ToolToggle webSearch = new ToolToggle(true);
+        /** HTTP 抓取网页内容 */
+        private ToolToggle fetchUrl = new ToolToggle(true);
+        /** 日期时间查询 */
+        private ToolToggle dateTime = new ToolToggle(true);
+    }
+
+    @Data
+    public static class ToolToggle {
+        private boolean enabled;
+
+        public ToolToggle() {}
+        public ToolToggle(boolean enabled) { this.enabled = enabled; }
     }
 
     @Data

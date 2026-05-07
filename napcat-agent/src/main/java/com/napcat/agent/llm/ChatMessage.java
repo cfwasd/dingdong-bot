@@ -19,13 +19,27 @@ public class ChatMessage {
     private String content;
     /** tool role 时表示工具名 */
     private String name;
+    /** tool role 时关联的工具调用ID */
+    private String toolCallId;
     /** assistant role 时的 tool_calls 列表 */
     private List<ToolCallData> toolCalls;
+
+    /** reasoning/thinking 模式下的推理内容 */
+    private String reasoningContent;
 
     public ChatMessage(String role, String content, String name) {
         this.role = role;
         this.content = content;
         this.name = name;
+    }
+    /**
+     * 构造带 tool_call_id 的 tool 响应消息
+     */
+    public ChatMessage(String role, String content, String name, String toolCallId) {
+        this.role = role;
+        this.content = content;
+        this.name = name;
+        this.toolCallId = toolCallId;
     }
 
     /**
