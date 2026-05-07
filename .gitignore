@@ -1,4 +1,10 @@
+# 本地配置文件
+napcat-admin/src/main/resources/application-local.yml
+napcat-admin/src/main/resources/application-dev.yml
+napcat-admin/src/main/resources/application-prod.yml
 
+# 如果希望完全忽略 application.yml，只使用模板
+napcat-admin/src/main/resources/application.yml
 # Maven/Gradle build output
 **/target/
 
@@ -28,4 +34,4 @@ Thumbs.db
 *.tar.gz
 *.rar
 
-napcat-admin/src/main/resources/application.yml
+
