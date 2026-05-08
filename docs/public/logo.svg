@@ -1,18 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="NapCat Java SDK logo">
   <defs>
     <linearGradient id="bg" x1="18" y1="16" x2="108" y2="112" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#3b82f6" />
-      <stop offset="0.55" stop-color="#6366f1" />
+      <stop offset="0" stop-color="#38bdf8" />
+      <stop offset="0.56" stop-color="#6366f1" />
       <stop offset="1" stop-color="#8b5cf6" />
     </linearGradient>
-    <linearGradient id="accent" x1="34" y1="28" x2="94" y2="96" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#93c5fd" stop-opacity="0.95" />
-      <stop offset="1" stop-color="#e9d5ff" stop-opacity="0.9" />
+    <linearGradient id="panel" x1="36" y1="34" x2="92" y2="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="1" stop-color="#e9edff" />
+    </linearGradient>
+    <linearGradient id="mouth" x1="52" y1="77" x2="76" y2="77" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a78bfa" />
+      <stop offset="1" stop-color="#7c3aed" />
     </linearGradient>
   </defs>
-  <path fill="url(#bg)" d="M64 10l18 16h20c9.94 0 18 8.06 18 18v40c0 18.78-10.6 32.11-24.84 40.06C84.13 130.21 72.96 134 64 134s-20.13-3.79-31.16-9.94C18.6 116.11 8 102.78 8 84V44c0-9.94 8.06-18 18-18h20L64 10z"/>
-  <path fill="#f8fbff" d="M44 51.5c0-3.04 2.46-5.5 5.5-5.5h7.73c1.82 0 3.52.9 4.54 2.4l12.08 17.88V51.5c0-3.04 2.46-5.5 5.5-5.5h.15c3.04 0 5.5 2.46 5.5 5.5v31c0 3.04-2.46 5.5-5.5 5.5h-7.1c-1.81 0-3.49-.89-4.52-2.37L55 66.99V82.5c0 3.04-2.46 5.5-5.5 5.5h-.15c-3.04 0-5.5-2.46-5.5-5.5v-31z"/>
-  <path fill="url(#accent)" d="M37 32l9-12 8 12h-17zm37 0l8-12 9 12H74z" opacity="0.95"/>
-  <circle cx="42" cy="98" r="6" fill="#ffffff" opacity="0.22"/>
-  <circle cx="91" cy="27" r="5" fill="#ffffff" opacity="0.18"/>
+
+  <rect x="12" y="12" width="104" height="104" rx="28" fill="url(#bg)" />
+
+  <circle cx="64" cy="24" r="6" fill="#fef08a" />
+  <rect x="61" y="30" width="6" height="10" rx="3" fill="#fef08a" />
+
+  <rect x="28" y="36" width="72" height="56" rx="22" fill="url(#panel)" />
+  <path fill="#ffffff" opacity="0.34" d="M39 43c5.88-8.76 16.19-14 27.83-14 8.68 0 16.62 2.92 22.9 7.69-4.98-2.57-10.65-4.01-16.67-4.01-18.93 0-34.7 14.13-37.28 32.37A26.79 26.79 0 0 1 39 43z" />
+
+  <rect x="44" y="54" width="12" height="12" rx="4" fill="#312e81" />
+  <rect x="72" y="54" width="12" height="12" rx="4" fill="#312e81" />
+  <rect x="48" y="57" width="3" height="3" rx="1.5" fill="#ffffff" />
+  <rect x="76" y="57" width="3" height="3" rx="1.5" fill="#ffffff" />
+
+  <rect x="52" y="74" width="24" height="7" rx="3.5" fill="url(#mouth)" />
+
+  <path d="M40 94h48c6.63 0 12 5.37 12 12 0 1.1-.9 2-2 2H54c-8.84 0-16-7.16-16-16v0z" fill="#ffffff" opacity="0.98" />
+  <circle cx="55" cy="100" r="4" fill="#38bdf8" />
+  <circle cx="68" cy="100" r="4" fill="#6366f1" />
+  <circle cx="81" cy="100" r="4" fill="#a78bfa" />
+
+  <path fill="#fde68a" d="M100 34l2.2 4.46 4.92.72-3.56 3.47.84 4.89L100 45.22l-4.4 2.32.84-4.89-3.56-3.47 4.92-.72L100 34z" />
 </svg>
