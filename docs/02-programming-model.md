@@ -16,9 +16,8 @@
 |------|------------|------|
 | `@OnGroupMessage` | `GroupMessageEvent` | 群聊消息事件 |
 | `@OnPrivateMessage` | `PrivateMessageEvent` | 私聊消息事件 |
-| `@OnNotice` | `NoticeEvent` 子类 | 通知事件（群成员变动等） |
-| `@OnRequest` | `RequestEvent` 子类 | 请求事件（加群/加好友） |
-| `@OnMetaEvent` | `MetaEvent` | 元事件（心跳、生命周期） |
+
+> **注意**：`@OnNotice`、`@OnRequest`、`@OnMetaEvent` 注解已定义，但当前注解驱动模型暂未实现对应的事件分发逻辑。通知、请求、元事件请通过接口驱动模型的 `EventHandler` 处理（见下文 2.1 节）。
 
 **源码定义：**
 
@@ -29,17 +28,6 @@ public @interface OnGroupMessage {
 
 public @interface OnPrivateMessage {
     long[] botId() default {};
-}
-
-public @interface OnNotice {
-    Class<? extends NoticeEvent> value() default NoticeEvent.class;
-}
-
-public @interface OnRequest {
-    Class<? extends RequestEvent> value() default RequestEvent.class;
-}
-
-public @interface OnMetaEvent {
 }
 ```
 
@@ -92,6 +80,7 @@ public @interface Command {
 - 叠加在事件注解上时，表示**同时满足**（AND 关系）
 - 消息必须匹配命令模板，参数用 `{}` 包裹
 - 不匹配的参数化命令会继续向下路由
+- 实际匹配时会在模板前拼接 `napcat.bot.command-prefix`（默认为空字符串）
 
 **示例：**
 
@@ -148,7 +137,6 @@ public class CommandArgs {
 | `String` | 原文提取 |
 | `int` / `long` / `double` | 自动转换 |
 | `boolean` | "true"/"1"/"yes" 为 true |
-| `MessageChain` | 提取命令后的完整消息链 |
 | `GroupMessageEvent` / `MessageEvent` | 注入事件对象本身 |
 
 ---
@@ -177,7 +165,7 @@ public @interface RoleFilter {
 /**
  * 关键词唤醒过滤器。
  * 唤醒词列表在 napcat.bot.wake-words 中配置，默认包含 ["机器人", "bot"]。
- * 与 @MentionFilter 互斥时取 OR 语义（满足任一即触发）。
+ * 与 @MentionFilter 同时标注时取 AND 语义（需同时满足才触发）。
  */
 public @interface WakeFilter {
 }
@@ -277,7 +265,9 @@ public class Tools {
 
 ### 1.6 组合注解（Meta-Annotation）
 
-框架支持自定义组合注解。定义时加 `@AliasFor` 即可。
+框架支持自定义组合注解。定义时将框架注解作为元注解即可，框架会通过递归收集元注解实现组合效果。
+
+> **注意**：框架仅递归收集元注解，不处理 Spring 的 `@AliasFor` 属性转发。组合注解上的自定义属性不会自动映射到被组合注解的对应属性。
 
 **自定义示例：**
 
@@ -287,8 +277,6 @@ public class Tools {
 @OnGroupMessage
 @MentionFilter
 public @interface OnGroupAtMe {
-    @AliasFor(annotation = OnGroupMessage.class, attribute = "botId")
-    long[] botId() default {};
 }
 
 @Target(ElementType.METHOD)
@@ -296,8 +284,7 @@ public @interface OnGroupAtMe {
 @Command
 @RoleFilter(RoleFilter.Role.ADMIN)
 public @interface AdminCommand {
-    @AliasFor(annotation = Command.class, attribute = "value")
-    String value();
+    String value();  // 此属性不会通过 @AliasFor 映射到 @Command.value()
 }
 ```
 
@@ -307,7 +294,7 @@ public @interface AdminCommand {
 @OnGroupAtMe
 public void handleAt(GroupMessageEvent event) { }
 
-@AdminCommand("/踢出 {user}")
+@AdminCommand("/踢出 {user}")  // 框架会识别出 @Command 和 @RoleFilter，但 value 需通过代码另行处理
 public void kick(GroupMessageEvent event, @Param("user") long userId) { }
 ```
 
@@ -347,7 +334,7 @@ public interface EventHandler<E extends OB11Event> {
 public class WelcomeHandler implements EventHandler.GroupMessageHandler {
     @Override
     public void handle(GroupMessageEvent event) {
-        if (event.getMessage().contains("新人")) {
+        if (event.getMessage().toPlainText().contains("新人")) {
             event.reply("欢迎新人！");
         }
     }
@@ -440,7 +427,7 @@ public class ManualBot implements BotInitializer {
     @Override
     public void initialize(BotDispatcher dispatcher) {
         dispatcher.onGroupMessage(event -> {
-            if (event.getMessage().contains("测试")) {
+            if (event.getMessage().toPlainText().contains("测试")) {
                 event.reply("收到测试");
             }
         });
@@ -467,8 +454,6 @@ public class ManualBot implements BotInitializer {
 | `void` | 无操作 |
 | `String` | 自动回复文本 |
 | `MessageChain` | 自动回复消息链 |
-| `CompletableFuture<String>` | 异步回复 |
-| `CompletableFuture<MessageChain>` | 异步回复消息链 |
 
 **示例：**
 
@@ -517,12 +502,18 @@ public void filterSpam(GroupMessageEvent event) {
 
 ### 5.1 路由优先级
 
-框架按**精确度从高到低**匹配，第一个命中即停止：
+框架按**优先级数值从小到大**依次匹配并执行（数值越小越先执行）。各注解组合的优先级如下：
 
-1. `@Command`（参数化命令最精确）
-2. `@MentionFilter + @Command`
-3. `@MentionFilter` / `@WakeFilter`
-4. `@OnGroupMessage` / `@OnPrivateMessage`（兜底）
+| 优先级数值 | 注解组合 |
+|-----------|---------|
+| 1 | `@Command` |
+| 10 | `@MentionFilter`（无 `@Command` 时）|
+| 10 | `@WakeFilter`（无 `@Command` 时）|
+| 100 | 纯 `@OnGroupMessage` / `@OnPrivateMessage` |
+
+**注意：** `@Command` 与 `@MentionFilter`/`@WakeFilter` 叠加时，优先级仍为 1（因为 `Command` 优先级最高）。
+
+同一优先级的处理器按**注册顺序**执行。
 
 ### 5.2 同一优先级的排序
 
@@ -536,4 +527,6 @@ public class HighPriorityHandler { }
 
 ### 5.3 阻止后续路由
 
-方法内抛出 `StopRoutingException` 可阻止后续处理器执行（见上文）。
+默认情况下，匹配的处理器会**顺序执行**。抛出 `StopRoutingException` 才会阻止后续处理器执行（见上文）。
+
+命令匹配同样遵循此规则：如果一条消息匹配多个命令模板，可能触发多个命令处理器。

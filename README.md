@@ -12,17 +12,19 @@
 
 ## 快速开始
 
-### 1. 添加依赖
+> **注意**：目前尚未发布到 Maven Central，请按以下步骤本地安装后开发。
 
-```xml
-<dependency>
-    <groupId>com.napcat</groupId>
-    <artifactId>napcat-spring-boot-starter</artifactId>
-    <version>1.0.0</version>
-</dependency>
+### 1. 克隆并安装到本地
+
+```bash
+git clone https://github.com/cfwasd/napcat-java-client-agent.git
+cd napcat-java-client-agent
+mvn install -DskipTests
 ```
 
 ### 2. 配置 NapCat 连接
+
+编辑 `napcat-admin/src/main/resources/application.yml`：
 
 ```yaml
 napcat:
@@ -35,7 +37,9 @@ napcat:
     self-id: 123456789
 ```
 
-### 3. 编写第一个 Bot
+### 3. 在 napcat-admin 中编写 Bot
+
+直接在 `napcat-admin` 模块下创建你的 Bot 类即可：
 
 ```java
 @Component
@@ -56,7 +60,23 @@ public class HelloBot {
 }
 ```
 
-更多示例见 [napcat-admin](napcat-admin/src/main/java/com/napcat/admin/bot/)。
+然后运行 `napcat-admin` 的 `main` 方法启动 Bot。
+
+更多示例见 [napcat-admin/src/main/java/com/napcat/admin/bot/](napcat-admin/src/main/java/com/napcat/admin/bot/)。
+
+---
+
+### 在自己的项目中使用
+
+如果你想在自己的项目中引入，先执行上面的 `mvn install`，然后在 `pom.xml` 中添加：
+
+```xml
+<dependency>
+    <groupId>com.napcat</groupId>
+    <artifactId>napcat-spring-boot-starter</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
 
 ---
 
@@ -71,7 +91,7 @@ public class HelloBot {
 | [配置参考](docs/03-configuration-reference.md) | 完整配置项、适配器配置、多环境配置 |
 | [事件与消息](docs/04-event-message-model.md) | 事件体系、MessageChain、Sender、API 列表 |
 | [通信适配器](docs/05-adapter-guide.md) | 四种适配器对比、配置示例、混合模式 |
-| [Agent 指南](docs/06-agent-guide.md) | ReAct 循环、Tool 注册、会话管理、LLM Provider |
+| [Agent 指南](docs/06-agent-guide.md) | ReAct 循环、Tool 注册、会话管理、多模态、LLM Provider |
 | [内部架构](docs/07-internal-architecture.md) | 模块职责、启动流程、线程模型、扩展点 |
 
 ---
@@ -80,12 +100,14 @@ public class HelloBot {
 
 - **全协议通信**：支持 HTTP Server / Client、WebSocket Server / Client 四种 NapCat 通信方式
 - **双编程模型**：注解式（`@OnGroupMessage`、`@Command`）与接口式（`EventHandler`、`CommandHandler`）并存
-- **OneBot11 完整模型**：消息链（MessageChain）、事件、API 请求/响应全覆盖
+- **OneBot11 完整模型**：消息链（MessageChain）、事件、API 请求/响应全覆盖；支持 array / string（CQ 码）双格式上报解析
 - **AI Agent 引擎**：内置 ReAct 轻量循环（默认最多 5 轮），支持 Function Calling / Tool Use
-- **多 LLM 后端**：OpenAI 协议兼容、Anthropic Claude、Ollama 本地模型、自定义 OpenAI 端点
+- **多模态支持**：`MessageChain.toAgentPrompt()` 保留图片、语音、视频等富文本标记；OpenAI Provider 自动将 `[图片:url]` 提取为 `image_url` 多模态消息
+- **多 LLM 后端**：OpenAI 协议兼容（含多模态/vision）、Anthropic Claude、Ollama 本地模型、自定义 OpenAI 端点
 - **Spring Boot 开箱即用**：`napcat-spring-boot-starter` 自动配置，高度可配置化
 - **组合注解**：支持自定义元注解，如 `@OnGroupAt`、`@AdminCommand`
-- **会话上下文**：按用户 ID + 群号隔离的会话管理
+- **关键词唤醒**：消息包含配置唤醒词时自动触发，无需 @
+- **会话上下文**：按用户 ID + 群号隔离的会话管理，支持过期清理与手动重置
 
 ---
 
@@ -97,7 +119,7 @@ napcat-java/
 ├── napcat-core                    # OneBot11 协议、通信适配器、事件路由
 ├── napcat-agent                   # LLM Agent 引擎、Tool 注册、ReAct 循环
 ├── napcat-llm-providers           # LLM 厂商实现
-│   ├── napcat-llm-openai          # OpenAI 协议兼容
+│   ├── napcat-llm-openai          # OpenAI 协议兼容（含多模态/vision、reasoning_content）
 │   ├── napcat-llm-anthropic       # Claude
 │   └── napcat-llm-ollama          # Ollama 本地模型
 ├── napcat-spring-boot-starter     # Spring Boot 自动配置
@@ -110,7 +132,7 @@ napcat-java/
 
 - [NapCatQQ 官方文档](https://napneko.github.io/guide/start-install)
 - [NapCat API 文档 (Apifox)](https://napcat.apifox.cn/llms.txt)
-- [NapCat GitHub](https://github.com/NapNeko/NapCatQQ)
+- [本项目 GitHub](https://github.com/cfwasd/napcat-java-client-agent)
 
 ## License
 

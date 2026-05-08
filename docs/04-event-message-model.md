@@ -152,7 +152,7 @@ public class GroupRequestEvent extends RequestEvent {
 
 OneBot11 的消息是**段（Segment）数组**，框架将其封装为 `MessageChain`。
 
-`MessageChain` 实现了 `List<MessageSegment>`，支持 array/string 双格式反序列化。
+`MessageChain` 实现了 `List<MessageSegment>`，支持 array / string（CQ 码）双格式反序列化。
 
 ### 2.1 基础用法
 
@@ -171,6 +171,7 @@ event.reply(chain);
 ### 2.2 静态工厂方法
 
 ```java
+MessageChain.of(MessageSegment segment)
 MessageChain.ofText(String text)
 MessageChain.ofAt(long qq)
 MessageChain.ofAtAll()
@@ -248,10 +249,10 @@ public void onGroup(GroupMessageEvent event) {
     // 提取纯文本（去掉 @、图片等）
     String plain = msg.toPlainText();
 
-    // 提取所有图片 URL
+    // 提取所有图片 URL（优先取 url，无 url 取 file）
     List<String> images = msg.getImages();
 
-    // 提取被 @ 的 QQ 列表
+    // 提取被 @ 的 QQ 列表（过滤 @全体成员）
     List<Long> ats = msg.getAts();
 }
 ```
@@ -276,7 +277,21 @@ public void onGroup(GroupMessageEvent event) {
 "[CQ:at,qq=123456789] 你好"
 ```
 
-通过 `napcat.core.message-post-format` 配置上报格式，框架自动兼容解析。
+通过 `napcat.core.message-post-format` 配置上报格式，框架自动兼容解析。CQ 码支持完整的段类型映射，解析失败会降级为 `UnknownSegment`。
+
+### 2.7 生成 Agent 提示文本
+
+`MessageChain.toAgentPrompt()` 生成适合传给 LLM Agent 的文本描述，保留图片、表情、@ 等富文本信息：
+
+```java
+String prompt = event.getMessage().toAgentPrompt();
+// 纯文本消息：与 toPlainText() 一致
+// 含图片消息："你好 [图片:https://xxx.jpg] 看看这个"
+// 含 @ 消息："你好 [@123456789] 在吗"
+// 含表情："[表情:277]"
+```
+
+Agent 会自动识别 `[图片:url]` 标记，将 HTTP/HTTPS 图片地址提取为多模态 `image_url` 消息发送给支持 vision 的模型（如 gpt-4o）。
 
 ---
 
@@ -338,6 +353,8 @@ api.getLoginInfo();
 ```
 
 ### 4.2 完整 API 列表
+
+所有方法返回 `CompletableFuture<ApiResponse>`。
 
 | 方法 | 对应 OneBot11 API |
 |------|------------------|
@@ -421,7 +438,7 @@ public class EventContext {
 @OnGroupMessage
 public void handle(GroupMessageEvent event) {
     EventContext ctx = EventContextHolder.get();
-    ctx.setAttr("key", value);
+    ctx.getAttrs().put("key", value);
 }
 ```
 

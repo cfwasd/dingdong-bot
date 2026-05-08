@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="NapCat Java SDK logo">
+  <defs>
+    <linearGradient id="bg" x1="18" y1="16" x2="108" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3b82f6" />
+      <stop offset="0.55" stop-color="#6366f1" />
+      <stop offset="1" stop-color="#8b5cf6" />
+    </linearGradient>
+    <linearGradient id="accent" x1="34" y1="28" x2="94" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#93c5fd" stop-opacity="0.95" />
+      <stop offset="1" stop-color="#e9d5ff" stop-opacity="0.9" />
+    </linearGradient>
+  </defs>
+  <path fill="url(#bg)" d="M64 10l18 16h20c9.94 0 18 8.06 18 18v40c0 18.78-10.6 32.11-24.84 40.06C84.13 130.21 72.96 134 64 134s-20.13-3.79-31.16-9.94C18.6 116.11 8 102.78 8 84V44c0-9.94 8.06-18 18-18h20L64 10z"/>
+  <path fill="#f8fbff" d="M44 51.5c0-3.04 2.46-5.5 5.5-5.5h7.73c1.82 0 3.52.9 4.54 2.4l12.08 17.88V51.5c0-3.04 2.46-5.5 5.5-5.5h.15c3.04 0 5.5 2.46 5.5 5.5v31c0 3.04-2.46 5.5-5.5 5.5h-7.1c-1.81 0-3.49-.89-4.52-2.37L55 66.99V82.5c0 3.04-2.46 5.5-5.5 5.5h-.15c-3.04 0-5.5-2.46-5.5-5.5v-31z"/>
+  <path fill="url(#accent)" d="M37 32l9-12 8 12h-17zm37 0l8-12 9 12H74z" opacity="0.95"/>
+  <circle cx="42" cy="98" r="6" fill="#ffffff" opacity="0.22"/>
+  <circle cx="91" cy="27" r="5" fill="#ffffff" opacity="0.18"/>
+</svg>

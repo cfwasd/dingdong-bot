@@ -60,7 +60,7 @@ napcat:
     openai:
       base-url: https://api.openai.com/v1
       api-key: ""
-      model: gpt-4o-mini
+      model: gpt-4o-mini                # 必须显式配置，无默认值
       max-tokens: 2000
       temperature: 0.7
       timeout: 60000
@@ -68,7 +68,7 @@ napcat:
     anthropic:
       base-url: https://api.anthropic.com
       api-key: ""
-      model: claude-sonnet-4-6
+      model: claude-sonnet-4-6          # 必须显式配置，无默认值
       max-tokens: 2000
       temperature: 0.7
       timeout: 60000
@@ -76,13 +76,13 @@ napcat:
     ollama:
       base-url: http://localhost:11434
       api-key: ""
-      model: llama3
+      model: llama3                     # 必须显式配置，无默认值
       timeout: 120000
 
     custom:
       base-url: ""                      # 任意兼容 OpenAI 协议的端点
       api-key: ""
-      model: default
+      model: ""                         # 必须显式配置，无默认值
       max-tokens: 2000
       timeout: 60000
 
@@ -90,7 +90,7 @@ napcat:
   agent:
     enabled: false
     max-react-rounds: 5                 # ReAct 最大思考轮数
-    system-prompt: "你是一个有用的 QQ 助手。你可以使用提供的工具（tools）来完成任务。..."
+    system-prompt: "你是一个有用的 QQ 助手..."  # 内置默认值，可覆盖
     timeout-per-round: 30000            # 每轮 LLM 调用超时（毫秒）
     session-ttl: 3600                   # 会话过期时间，秒
     show-tool-process: false            # 是否将工具调用过程发送到聊天
@@ -191,11 +191,11 @@ napcat:
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `self-id` | long | `0` | 当前机器人 QQ 号，用于过滤自身消息和 @ 判断 |
-| `command-prefix` | String | `""` | 命令前缀。设为空字符串表示无前缀，直接匹配命令模板开头 |
-| `at-me-trigger` | boolean | `true` | 被 @ 时是否尝试走 Agent 流程 |
+| `command-prefix` | String | `""` | 命令前缀。空字符串表示无前缀，直接匹配命令模板开头 |
+| `at-me-trigger` | boolean | `true` | 被 @ 时是否尝试走 Agent 流程（需 agent.enabled=true） |
 | `ignore-self-message` | boolean | `true` | 是否忽略机器人自己发送的消息 |
-| `super-users` | List<long> | `[]` | 超级管理员 QQ 号，用于 `Role.SUPERUSER` 判断 |
-| `wake-words` | List<String> | `["机器人", "bot"]` | 关键词唤醒列表，消息包含任一唤醒词时视为触发 |
+| `super-users` | `List<long>` | `[]` | 超级管理员 QQ 号，用于 `Role.SUPERUSER` 判断 |
+| `wake-words` | `List<String>` | `["机器人", "bot"]` | 关键词唤醒列表，消息包含任一唤醒词时视为触发 |
 
 ---
 
@@ -211,10 +211,12 @@ napcat:
 |--------|------|--------|------|
 | `base-url` | String | 见上方完整示例 | API 基础地址 |
 | `api-key` | String | `""` | API Key（Ollama 可为空） |
-| `model` | String | 见上方完整示例 | 模型名称 |
+| `model` | String | `null`（必须显式配置） | 模型名称 |
 | `max-tokens` | int | `2000` | 最大生成 Token 数 |
 | `temperature` | double | `0.7` | 采样温度 |
 | `timeout` | long | `60000` | 单次请求超时（ms） |
+
+**注意：** `model` 字段在所有 Provider 中均无内置默认值，必须显式配置。
 
 ---
 

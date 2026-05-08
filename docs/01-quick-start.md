@@ -10,9 +10,65 @@
 - Maven 3.8+
 - 已部署并配置好的 NapCat（[安装指南](https://napneko.github.io/guide/start-install)）
 
-## 创建项目
+## 快速开始
 
-### 1. 添加依赖
+> **注意**：目前尚未发布到 Maven Central，请按以下步骤本地安装后开发。
+
+### 1. 克隆并安装到本地
+
+```bash
+git clone https://github.com/cfwasd/napcat-java-client-agent.git
+cd napcat-java-client-agent
+mvn install -DskipTests
+```
+
+### 2. 配置 NapCat 连接
+
+编辑 `napcat-admin/src/main/resources/application.yml`：
+
+```yaml
+napcat:
+  adapter:
+    type: websocket-client
+    websocket-client:
+      url: ws://127.0.0.1:3001
+      token: ""
+  bot:
+    self-id: 123456789
+```
+
+### 3. 在 napcat-admin 中编写 Bot
+
+直接在 `napcat-admin` 模块下创建你的 Bot 类即可：
+
+```java
+@Component
+public class HelloBot {
+
+    @OnGroupMessage
+    @Command("/hello")
+    public void hello(GroupMessageEvent event) {
+        event.reply("Hello NapCat!");
+    }
+
+    @OnGroupMessage
+    public void onGroup(GroupMessageEvent event) {
+        if (event.getRawMessage().contains("在吗")) {
+            event.reply("在的！");
+        }
+    }
+}
+```
+
+然后运行 `napcat-admin` 的 `main` 方法启动 Bot。
+
+更多示例见 `napcat-admin/src/main/java/com/napcat/admin/bot/` 目录。
+
+---
+
+### 在自己的项目中使用
+
+如果你想在自己的项目中引入，先执行上面的 `mvn install`，然后在 `pom.xml` 中添加：
 
 ```xml
 <dependency>
@@ -25,7 +81,7 @@
 如需 Agent 能力，再添加一个 LLM Provider：
 
 ```xml
-<!-- OpenAI 协议兼容（含 DeepSeek、通义千问等） -->
+<!-- OpenAI 协议兼容（含 DeepSeek、通义千问等，支持多模态/vision） -->
 <dependency>
     <groupId>com.napcat</groupId>
     <artifactId>napcat-llm-openai</artifactId>
@@ -47,79 +103,13 @@
 </dependency>
 ```
 
-### 2. 配置 NapCat 连接
+---
 
-`application.yml`：
+## 进阶示例
 
-```yaml
-napcat:
-  adapter:
-    type: websocket-client
-    websocket-client:
-      url: ws://127.0.0.1:3001
-      token: ""
-  bot:
-    self-id: 123456789
-```
-
-### 3. 编写第一个 Bot（注解式）
+### 接口式 Handler
 
 ```java
-package com.example.bot;
-
-import com.napcat.core.annotation.Command;
-import com.napcat.core.annotation.OnGroupMessage;
-import com.napcat.core.annotation.OnPrivateMessage;
-import com.napcat.core.annotation.Param;
-import com.napcat.core.event.GroupMessageEvent;
-import com.napcat.core.event.PrivateMessageEvent;
-import com.napcat.core.message.MessageChain;
-import org.springframework.stereotype.Component;
-
-@Component
-public class HelloBot {
-
-    @OnGroupMessage
-    @Command("/hello")
-    public void hello(GroupMessageEvent event) {
-        event.reply("Hello NapCat!");
-    }
-
-    @OnGroupMessage
-    @Command("/天气 {city}")
-    public void weather(GroupMessageEvent event, @Param("city") String city) {
-        event.reply("查询 " + city + " 的天气：晴 25°C");
-    }
-
-    @OnGroupMessage
-    public void onGroup(GroupMessageEvent event) {
-        if (event.getRawMessage().contains("在吗")) {
-            event.reply("在的！");
-        }
-    }
-
-    @OnPrivateMessage
-    public void onPrivate(PrivateMessageEvent event) {
-        event.reply("私聊收到：" + event.getPlainText());
-    }
-
-    @OnGroupMessage
-    @Command("/图片")
-    public MessageChain image() {
-        return MessageChain.ofText("给你一张图：").image("https://picsum.photos/200");
-    }
-}
-```
-
-### 4. 编写第一个 Bot（接口式）
-
-```java
-package com.example.bot;
-
-import com.napcat.core.event.MessageEvent;
-import com.napcat.core.handler.CommandHandler;
-import org.springframework.stereotype.Component;
-
 @Component
 public class WeatherCommand implements CommandHandler {
 
@@ -136,7 +126,7 @@ public class WeatherCommand implements CommandHandler {
 }
 ```
 
-### 5. 启用 AI Agent
+### 启用 AI Agent
 
 ```yaml
 napcat:
@@ -152,15 +142,6 @@ napcat:
 ```
 
 ```java
-package com.example.bot;
-
-import com.napcat.agent.agent.NapCatAgent;
-import com.napcat.core.annotation.MentionFilter;
-import com.napcat.core.annotation.OnGroupMessage;
-import com.napcat.core.event.GroupMessageEvent;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
 @Component
 public class AgentBot {
 
@@ -170,13 +151,15 @@ public class AgentBot {
     @OnGroupMessage
     @MentionFilter
     public void onAt(GroupMessageEvent event) {
-        agent.chat(event.getUserId(), event.getGroupId(), event.getMessage().toPlainText())
+        // toAgentPrompt() 会保留图片、@等富文本信息，适合传给 Agent
+        String prompt = event.getMessage().toAgentPrompt();
+        agent.chat(event.getUserId(), event.getGroupId(), prompt)
             .thenAccept(event::reply);
     }
 }
 ```
 
-配置 `napcat.bot.at-me-trigger: true` 后，被 @ 时会自动走 Agent 流程，无需额外写 Handler。
+配置 `napcat.bot.at-me-trigger: true` 后，被 @ 或包含唤醒词时会自动走 Agent 流程，无需额外写 Handler。
 
 ---
 
@@ -188,7 +171,7 @@ napcat-java/
 ├── napcat-core                    # OneBot11 协议、通信适配器、事件路由
 ├── napcat-agent                   # LLM Agent 引擎、Tool 注册、ReAct 循环
 ├── napcat-llm-providers           # LLM 厂商实现
-│   ├── napcat-llm-openai          # OpenAI 协议兼容
+│   ├── napcat-llm-openai          # OpenAI 协议兼容（含多模态/vision、reasoning_content）
 │   ├── napcat-llm-anthropic       # Claude
 │   └── napcat-llm-ollama          # Ollama 本地模型
 ├── napcat-spring-boot-starter     # Spring Boot 自动配置

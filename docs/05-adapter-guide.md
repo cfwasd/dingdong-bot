@@ -288,6 +288,7 @@ napcat:
 - 最大线程数：16
 - 队列：有界队列 1000
 - 拒绝策略：`CallerRunsPolicy`
+- 线程名前缀：`napcat-event-pool`
 
 如需同步处理事件（不启用线程池）：
 

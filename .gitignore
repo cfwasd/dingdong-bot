@@ -34,4 +34,12 @@ Thumbs.db
 *.tar.gz
 *.rar
 
+# Node.js
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
+# VitePress build output
+docs/.vitepress/dist
+docs/.vitepress/cache

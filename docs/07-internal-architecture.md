@@ -12,19 +12,20 @@
 - **通信层**：`BotAdapter` 抽象及四种实现（WS/HTTP）
 - **路由层**：`HandlerRegistry` 注解扫描、接口收集、路由表构建、事件分发
 - **API 层**：`NapCatApi` 封装所有 OneBot11 + NapCat 扩展 API，基于 echo 机制的异步请求-响应匹配
+- **消息解析**：`MessageChainDeserializer` 支持 array/string（CQ 码）双格式，未知类型降级为 `UnknownSegment`
 
 ### napcat-agent
 
-- **Agent 引擎**：`NapCatAgent` 驱动 ReAct 循环
+- **Agent 引擎**：`NapCatAgent` 驱动 ReAct 循环，支持多模态图片提取与 `reasoning_content`
 - **会话管理**：`SessionManager` 按 `SessionKey(userId, groupId)` 隔离上下文
 - **Tool 注册**：`ToolRegistry` 扫描 `@Tool` 注解，生成 LLM JSON Schema，含 JSON 容错修复与模糊匹配
-- **抽象接口**：`LlmProvider`、`Session`、`ToolSchema` 等
+- **抽象接口**：`LlmProvider`、`Session`、`ToolSchema`、`ChatMessage` 等
 
 ### napcat-llm-providers
 
 各 LLM 厂商的具体实现，每个子模块依赖 `napcat-agent` 并实现 `LlmProvider`。
 
-- **napcat-llm-openai**：OpenAI 协议兼容实现（含 reasoning_content、tool_calls）
+- **napcat-llm-openai**：OpenAI 协议兼容实现（含 vision 多模态、reasoning_content、tool_calls）
 - **napcat-llm-anthropic**：Anthropic Claude Messages API 实现
 - **napcat-llm-ollama**：Ollama HTTP API 实现（`/api/chat`，stream=false）
 
@@ -90,14 +91,22 @@ EventDispatcher.dispatch(event)
   ├─ 设置 EventContext（ThreadLocal）
   ├─ 忽略自身消息（如配置 ignore-self-message）
   ├─ 查找 HandlerRegistry 中匹配的 Handlers
-  │     按优先级排序，精确匹配优先
+  │     按优先级排序，顺序执行
   │
   ├─ 顺序执行 Handlers（线程池异步或同步）
-  │     第一个命中即执行，除非抛出 StopRoutingException
+  │     命令匹配 → 注解 handler → 接口 handler → fallback
+  │     抛出 StopRoutingException 时停止后续执行
   │
   ├─ 处理返回值（String/MessageChain → 自动回复）
   └─ 清理 EventContext
 ```
+
+**执行顺序详解：**
+
+1. **命令匹配**：遍历所有 `@Command` 注册的命令模板，匹配成功的按注册顺序执行
+2. **注解 handler**：按优先级（Command=1, Mention/Wake=10, 普通=100）排序后顺序执行
+3. **接口 handler**：执行所有 `EventHandler` 接口实现
+4. **fallback**：如果以上均未命中且配置了 `fallbackHandler`（如 `at-me-trigger`），则执行兜底
 
 ### 2.3 ReAct Agent 流程
 
@@ -106,7 +115,8 @@ NapCatAgent.chat(SessionKey, input, config)
   │
   ├─ 获取/创建 Session
   ├─ 新会话时注入 system prompt + 可用工具清单
-  ├─ 添加 user message
+  ├─ 提取输入中的 [图片:url] → imageUrls（多模态）
+  ├─ 添加 user message（含 text + imageUrls）
   ├─ 执行 ackCallback（如有）
   │
   ▼
@@ -166,6 +176,7 @@ MessageChain implements List<MessageSegment>
   ├─ at(long): MessageChain
   ├─ image(String): MessageChain
   ├─ toPlainText(): String
+  ├─ toAgentPrompt(): String
   ├─ containsImage(): boolean
   ├─ isAt(long): boolean
   ├─ isAtAll(): boolean
@@ -193,6 +204,8 @@ HandlerRegistry
   ├─ registerBean(Object, Class): void
   ├─ registerEventHandler(EventHandler): void
   ├─ registerCommandHandler(CommandHandler): void
+  ├─ registerInitializer(BotInitializer): void
+  ├─ dispatch(OB11Event): List<HandlerResult>
   └─ setFallbackHandler(Consumer): void
 
 EventDispatcher
@@ -215,6 +228,7 @@ NapCatAgent
   ├─ defaultMaxRounds: int
   ├─ chat(long userId, long groupId, String input): CompletableFuture<String>
   ├─ chat(long, long, String, AgentConfig, Consumer<String>): CompletableFuture<String>
+  ├─ chat(SessionKey, String, AgentConfig, Consumer<String>): CompletableFuture<String>
   └─ reactLoop(Session, AgentConfig, int, Consumer): CompletableFuture<String>
 
 LlmProvider (interface)
@@ -242,6 +256,15 @@ Session
   ├─ addMessage(ChatMessage): void
   ├─ truncateHistory(): void
   └─ isExpired(long ttl): boolean
+
+ChatMessage
+  ├─ role: String
+  ├─ content: String
+  ├─ name: String
+  ├─ toolCallId: String
+  ├─ toolCalls: List<ToolCallData>
+  ├─ reasoningContent: String
+  └─ imageUrls: List<String>
 ```
 
 ---
@@ -355,6 +378,8 @@ OneBot11 的消息段格式：
 2. 根据 type 查找对应的 `MessageSegment` 子类
 3. 将 `data` 映射到子类字段
 4. 未知类型降级为 `UnknownSegment`，保留原始数据
+
+CQ 码格式同样支持完整映射，解析规则见 `MessageChainDeserializer`。
 
 ### 6.3 API 请求格式
 

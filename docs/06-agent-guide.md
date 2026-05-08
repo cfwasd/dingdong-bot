@@ -1,6 +1,6 @@
 # Agent 使用指南
 
-本文档描述框架的 AI Agent 功能，包括 ReAct 循环、Tool 注册、LLM 对接和会话管理。
+本文档描述框架的 AI Agent 功能，包括 ReAct 循环、Tool 注册、LLM 对接、多模态和会话管理。
 
 ---
 
@@ -11,8 +11,10 @@
 - **多轮思考**：收到用户消息后，Agent 可以多次调用 LLM，每轮决定直接回复或调用工具
 - **工具调用**：自动将 `@Tool` 标记的方法转换为 LLM 的 Function Calling Schema
 - **会话隔离**：按 `userId + groupId` 复合键隔离会话上下文，支持过期清理
-- **多 LLM 后端**：OpenAI、Claude、Ollama、自定义 OpenAI 端点
+- **多 LLM 后端**：OpenAI（含多模态/vision）、Claude、Ollama、自定义 OpenAI 端点
 - **内置工具**：联网搜索 (DuckDuckGo)、网页抓取、日期时间查询
+- **多模态理解**：当用户使用 `toAgentPrompt()` 时，图片 URL 会被自动提取为 `image_url` 发送给支持 vision 的模型
+- **推理内容支持**：OpenAI Provider 支持解析 `reasoning_content`（如 DeepSeek R1 等推理模型）
 
 默认最大思考轮数为 5 轮，超过则返回提示信息。
 
@@ -49,8 +51,9 @@ public class AgentBot {
     @OnGroupMessage
     @MentionFilter
     public void onAt(GroupMessageEvent event) {
-        String plainText = event.getMessage().toPlainText();
-        agent.chat(event.getUserId(), event.getGroupId(), plainText)
+        // toAgentPrompt() 保留图片、@等富文本，适合多模态模型
+        String prompt = event.getMessage().toAgentPrompt();
+        agent.chat(event.getUserId(), event.getGroupId(), prompt)
             .thenAccept(reply -> event.reply(reply));
     }
 }
@@ -243,16 +246,45 @@ public class AgentConfig {
 
 ---
 
-## 五、会话管理
+## 五、多模态支持
 
-### 5.1 默认行为
+当消息包含图片时，使用 `MessageChain.toAgentPrompt()` 会生成 `[图片:url]` 格式的标记：
+
+```java
+String prompt = event.getMessage().toAgentPrompt();
+// "你好 [图片:https://example.com/pic.jpg] 这是什么"
+```
+
+`NapCatAgent` 会自动从输入中提取 `[图片:url]` 格式的 HTTP/HTTPS 图片地址，将其作为 `image_url` 内容发送给 LLM：
+
+```java
+// OpenAI 请求中的 messages 格式
+{
+  "role": "user",
+  "content": [
+    { "type": "text", "text": "你好 [图片] 这是什么" },
+    { "type": "image_url", "image_url": { "url": "https://example.com/pic.jpg" } }
+  ]
+}
+```
+
+**要求：**
+- 仅 OpenAI Provider（及兼容的自定义端点）支持多模态
+- 图片地址必须是 `http://` 或 `https://`
+- 模型需支持 vision（如 `gpt-4o`、`gpt-4o-mini`、`qwen-vl` 等）
+
+---
+
+## 六、会话管理
+
+### 6.1 默认行为
 
 - 按 `SessionKey(userId, groupId)` 隔离会话。私聊时 `groupId = 0`
 - 同一用户在不同群聊、或私聊与群聊之间的会话完全隔离
 - 默认 TTL 为 3600 秒，过期自动清理
 - 默认最大历史消息 50 条，超出时自动截断（保留 system + 最近 N 条）
 
-### 5.2 手动管理会话
+### 6.2 手动管理会话
 
 ```java
 @Autowired
@@ -276,16 +308,16 @@ public record SessionKey(long userId, long groupId) {
     public static final long PRIVATE = 0L;
     public boolean isPrivate();
     public boolean isGroup();
-    public static SessionKey ofPrivate(long userId);
+    public static SessionKey ofPrivate(long userId);   // groupId = 0
     public static SessionKey ofGroup(long userId, long groupId);
 }
 ```
 
 ---
 
-## 六、LLM Provider 详解
+## 七、LLM Provider 详解
 
-### 6.1 OpenAI（含兼容端点）
+### 7.1 OpenAI（含兼容端点）
 
 ```yaml
 napcat:
@@ -309,7 +341,11 @@ napcat:
       model: deepseek-chat
 ```
 
-### 6.2 Anthropic Claude
+**OpenAI Provider 额外特性：**
+- 支持 `reasoning_content` 解析（DeepSeek R1 等推理模型）
+- 支持多模态 `image_url`（vision 模型）
+
+### 7.2 Anthropic Claude
 
 ```yaml
 napcat:
@@ -321,7 +357,7 @@ napcat:
       model: claude-sonnet-4-6
 ```
 
-### 6.3 Ollama
+### 7.3 Ollama
 
 ```yaml
 napcat:
@@ -334,7 +370,7 @@ napcat:
 
 Ollama 无需 API Key，适合本地开发测试。
 
-### 6.4 自定义 Provider
+### 7.4 自定义 Provider
 
 实现 `LlmProvider` 接口：
 
@@ -363,7 +399,7 @@ public class MyLlmProvider implements LlmProvider {
 
 ---
 
-## 七、内置工具
+## 八、内置工具
 
 框架自带三个内置工具，可通过配置开启/关闭：
 
@@ -387,7 +423,7 @@ napcat:
 
 ---
 
-## 八、错误处理
+## 九、错误处理
 
 Agent 内部对常见错误做了处理：
 

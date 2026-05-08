@@ -1,0 +1,77 @@
+:root {
+  --vp-c-brand-1: #5f67ee;
+  --vp-c-brand-2: #4f57d8;
+  --vp-c-brand-3: #6b73f5;
+  --vp-c-brand-soft: rgba(95, 103, 238, 0.14);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #5f67ee, #bd34fe);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #5f67ee 50%, #bd34fe 50%);
+  --vp-home-hero-image-filter: blur(68px);
+}
+
+.dark {
+  --vp-c-brand-1: #7b82f7;
+  --vp-c-brand-2: #6b73f5;
+  --vp-c-brand-3: #5f67ee;
+}
+
+.VPHero {
+  position: relative;
+  overflow: hidden;
+}
+
+.VPHero::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: -10%;
+  width: 120%;
+  height: 80vh;
+  background:
+    radial-gradient(ellipse at 20% 30%, rgba(95, 103, 238, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 70%, rgba(189, 52, 254, 0.12) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+  animation: heroGradient 8s ease-in-out infinite alternate;
+}
+
+@keyframes heroGradient {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(-20px, 10px) scale(1.05);
+  }
+}
+
+.VPHero .container {
+  position: relative;
+  z-index: 1;
+}
+
+.VPFeature .icon {
+  font-size: 28px;
+  margin-bottom: 12px;
+}
+
+.VPFeature .title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.VPFeature .details {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+}
+
+.VPButton.brand {
+  background-color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+}
+
+.VPButton.brand:hover {
+  background-color: var(--vp-c-brand-2);
+  border-color: var(--vp-c-brand-2);
+}

@@ -11,7 +11,25 @@
       "Bash(python3 *)",
       "Bash(sed 's/&&&&amp;/&&/g')",
       "Bash(mv /tmp/wsc.java C:/Users/Administrator/Desktop/napcat-java/napcat-core/src/main/java/com/napcat/core/adapter/WsClientAdapter.java)",
-      "Bash(mvn compile *)"
+      "Bash(mvn compile *)",
+      "Bash(curl -s -L -o /tmp/napneko.html https://napneko.github.io/)",
+      "Read(//tmp/**)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npx vitepress *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl *)",
+      "Bash(npm run *)",
+      "Bash(tasklist)",
+      "Bash(findstr node *)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(netstat -ano)",
+      "Bash(findstr 4173)",
+      "Bash(taskkill /F /PID 30872)",
+      "Bash(tskill 30872)",
+      "Bash(tskill 20012)",
+      "Bash(findstr LISTENING)"
     ]
   }
 }
