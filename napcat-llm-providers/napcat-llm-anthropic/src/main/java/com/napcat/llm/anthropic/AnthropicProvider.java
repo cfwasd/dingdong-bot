@@ -61,7 +61,7 @@ public class AnthropicProvider implements LlmProvider {
                 if ("system".equals(msg.getRole())) continue;
                 var node = messages.addObject();
                 node.put("role", msg.getRole());
-                node.put("content", msg.getContent());
+                node.put("content", msg.getContent() == null ? "" : msg.getContent());
             }
 
             String systemPrompt = session.getHistory().stream()
@@ -95,6 +95,7 @@ public class AnthropicProvider implements LlmProvider {
             }
 
             String json = mapper.writeValueAsString(root);
+            log.error("Anthropic request: {}", json);
             RequestBody body = RequestBody.create(json, MediaType.parse("application/json"));
             Request request = new Request.Builder()
                     .url(baseUrl + "/v1/messages")

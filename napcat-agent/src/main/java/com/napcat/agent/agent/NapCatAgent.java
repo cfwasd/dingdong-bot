@@ -95,7 +95,14 @@ public class NapCatAgent {
             }
         }
 
-        session.addMessage(new ChatMessage("user", input, null));
+        ChatMessage userMsg = new ChatMessage("user", input, null);
+        java.util.List<String> imageUrls = extractImageUrls(input);
+        if (!imageUrls.isEmpty()) {
+            userMsg.setImageUrls(imageUrls);
+            // 文本中保留 [图片] 占位，避免 URL 重复干扰模型
+            userMsg.setContent(input.replaceAll("\\[图片:[^\\]]+\\]", "[图片]"));
+        }
+        session.addMessage(userMsg);
 
         // 消息确认：立即通知用户"已收到，正在处理"
         if (config.getAckCallback() != null) {
@@ -113,6 +120,29 @@ public class NapCatAgent {
      * 构建最终 system prompt = 用户配置的 systemPrompt + 可用工具清单。
      * 工具清单确保即使模型 function-calling 能力弱，也能从文本中了解可用工具。
      */
+    /**
+     * 从用户输入文本中提取图片 URL（[图片:xxx] 格式）。只保留 http/https 协议的可访问地址。
+     */
+    private static java.util.List<String> extractImageUrls(String input) {
+        if (input == null || input.isBlank()) return java.util.Collections.emptyList();
+        java.util.List<String> urls = new java.util.ArrayList<>();
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\[图片:([^\\]]+)\\]");
+        java.util.regex.Matcher matcher = pattern.matcher(input);
+        while (matcher.find()) {
+            String url = matcher.group(1).trim();
+            if (url.isEmpty()) continue;
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                urls.add(url);
+            } else {
+                log.warn("[Agent] Ignoring non-HTTP image URL from NapCat: {}", url);
+            }
+        }
+        if (!urls.isEmpty()) {
+            log.debug("[Agent] Extracted image URLs: {}", urls);
+        }
+        return urls;
+    }
+
     private String buildEffectivePrompt(AgentConfig config) {
         StringBuilder sb = new StringBuilder();
 

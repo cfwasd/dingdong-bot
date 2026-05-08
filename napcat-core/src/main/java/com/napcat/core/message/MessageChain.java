@@ -161,6 +161,72 @@ public class MessageChain implements List<MessageSegment> {
                 .collect(Collectors.joining());
     }
 
+    /**
+     * 生成适合传给 LLM Agent 的文本描述，保留图片、表情、@等富文本信息。
+     * 纯文本消息与 toPlainText() 结果一致；含富文本时会插入语义化标记。
+     */
+    public String toAgentPrompt() {
+        if (segments.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (MessageSegment seg : segments) {
+            if (seg instanceof TextSegment text) {
+                sb.append(text.getText());
+            } else if (seg instanceof AtSegment at) {
+                if (at.isAtAll()) sb.append("[@全体成员]");
+                else sb.append("[@").append(at.getQq()).append("]");
+            } else if (seg instanceof ImageSegment img) {
+                String url = firstNonBlank(img.getUrl(), img.getFile());
+                if (url != null) {
+                    sb.append("[图片:").append(url).append("]");
+                } else {
+                    sb.append("[图片]");
+                }
+            } else if (seg instanceof FaceSegment face) {
+                sb.append("[表情:").append(face.getData().getOrDefault("id", "?")).append("]");
+            } else if (seg instanceof RecordSegment record) {
+                String url = record.getFile();
+                sb.append(url != null ? "[语音:" + url + "]" : "[语音]");
+            } else if (seg instanceof VideoSegment video) {
+                String url = video.getFile();
+                sb.append(url != null ? "[视频:" + url + "]" : "[视频]");
+            } else if (seg instanceof FileSegment file) {
+                String name = file.getName();
+                String url = file.getFile();
+                if (name != null && url != null) sb.append("[文件:").append(name).append(" ").append(url).append("]");
+                else if (name != null) sb.append("[文件:").append(name).append("]");
+                else if (url != null) sb.append("[文件:").append(url).append("]");
+                else sb.append("[文件]");
+            } else if (seg instanceof ReplySegment) {
+                sb.append("[回复消息]");
+            } else if (seg instanceof MarkdownSegment md) {
+                String content = md.getContent();
+                sb.append(content != null ? "[Markdown消息:" + content + "]" : "[Markdown消息]");
+            } else if (seg instanceof JsonSegment json) {
+                String data = json.getJsonData();
+                sb.append(data != null ? "[卡片消息:" + data + "]" : "[卡片消息]");
+            } else if (seg instanceof XmlSegment xml) {
+                String data = xml.getXmlData();
+                sb.append(data != null ? "[XML消息:" + data + "]" : "[XML消息]");
+            } else if (seg instanceof ForwardSegment) {
+                sb.append("[合并转发消息]");
+            } else if (seg instanceof NodeSegment) {
+                sb.append("[转发节点]");
+            } else if (seg instanceof UnknownSegment unknown) {
+                sb.append("[未知消息:").append(unknown.getType()).append("]");
+            } else {
+                sb.append("[").append(seg.getType()).append("]");
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) return v;
+        }
+        return null;
+    }
+
     public boolean containsImage() {
         return segments.stream().anyMatch(s -> s instanceof ImageSegment);
     }
@@ -497,6 +563,23 @@ public class MessageChain implements List<MessageSegment> {
                 case "xml" -> {
                     XmlSegment seg = new XmlSegment();
                     seg.setDataValue("data", params.getOrDefault("data", ""));
+                    yield seg;
+                }
+                case "markdown" -> {
+                    MarkdownSegment seg = new MarkdownSegment();
+                    seg.setDataValue("content", params.getOrDefault("content", ""));
+                    yield seg;
+                }
+                case "node" -> {
+                    NodeSegment seg = new NodeSegment();
+                    seg.setDataValue("user_id", params.getOrDefault("user_id", "0"));
+                    seg.setDataValue("nickname", params.getOrDefault("nickname", ""));
+                    seg.setDataValue("id", params.getOrDefault("id", ""));
+                    yield seg;
+                }
+                case "forward" -> {
+                    ForwardSegment seg = new ForwardSegment();
+                    seg.setDataValue("id", params.getOrDefault("id", ""));
                     yield seg;
                 }
                 default -> {

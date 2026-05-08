@@ -27,6 +27,9 @@ public class ChatMessage {
     /** reasoning/thinking 模式下的推理内容 */
     private String reasoningContent;
 
+    /** 多模态消息中的图片 URL 列表（OpenAI vision / 多模态模型用） */
+    private List<String> imageUrls;
+
     public ChatMessage(String role, String content, String name) {
         this.role = role;
         this.content = content;
@@ -49,7 +52,7 @@ public class ChatMessage {
     public static ChatMessage fromToolCalls(List<LlmResponse.ToolCall> calls) {
         ChatMessage msg = new ChatMessage();
         msg.setRole("assistant");
-        msg.setContent(null);
+        msg.setContent("");
         List<ToolCallData> list = new java.util.ArrayList<>();
         for (LlmResponse.ToolCall tc : calls) {
             list.add(buildToolCall(tc.getId(), "function", tc.getName(), tc.getArguments()));

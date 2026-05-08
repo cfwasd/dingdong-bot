@@ -63,15 +63,27 @@ public class OpenAiProvider implements LlmProvider {
             for (ChatMessage msg : session.getHistory()) {
                 ObjectNode node = messages.addObject();
                 node.put("role", msg.getRole());
-                if (msg.getContent() != null) {
-                    node.put("content", msg.getContent());
+
+                // 多模态消息：text + image_url array
+                if (msg.getImageUrls() != null && !msg.getImageUrls().isEmpty()) {
+                    ArrayNode contentArray = node.putArray("content");
+                    if (msg.getContent() != null && !msg.getContent().isBlank()) {
+                        ObjectNode textNode = contentArray.addObject();
+                        textNode.put("type", "text");
+                        textNode.put("text", msg.getContent());
+                    }
+                    for (String imgUrl : msg.getImageUrls()) {
+                        ObjectNode imgNode = contentArray.addObject();
+                        imgNode.put("type", "image_url");
+                        ObjectNode imgUrlObj = imgNode.putObject("image_url");
+                        imgUrlObj.put("url", imgUrl);
+                    }
+                } else {
+                    node.put("content", msg.getContent() == null ? "" : msg.getContent());
                 }
+
                 if (msg.getName() != null) {
                     node.put("name", msg.getName());
-                }
-                // reasoning/thinking 模式需要回传 reasoning_content
-                if (msg.getReasoningContent() != null && !msg.getReasoningContent().isEmpty()) {
-                    node.put("reasoning_content", msg.getReasoningContent());
                 }
                 // tool 角色消息需要包含 tool_call_id
                 if ("tool".equals(msg.getRole()) && msg.getToolCallId() != null) {
@@ -119,6 +131,7 @@ public class OpenAiProvider implements LlmProvider {
             }
 
             String json = mapper.writeValueAsString(root);
+            log.error("OpenAI request: {}", json);
             RequestBody body = RequestBody.create(json, MediaType.parse("application/json"));
             Request.Builder builder = new Request.Builder()
                     .url(baseUrl + "/chat/completions")
@@ -198,7 +211,7 @@ public class OpenAiProvider implements LlmProvider {
                 response.setReasoningContent(message.path("reasoning_content").asText());
             }
             
-            response.setContent(message.path("content").asText());
+            response.setContent(message.path("content").asText(null));
 
             JsonNode toolCalls = message.path("tool_calls");
             if (toolCalls.isArray() && !toolCalls.isEmpty()) {

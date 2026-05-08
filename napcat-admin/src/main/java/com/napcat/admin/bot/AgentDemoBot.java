@@ -3,6 +3,7 @@ package com.napcat.admin.bot;
 import com.napcat.agent.agent.AgentConfig;
 import com.napcat.agent.agent.NapCatAgent;
 import com.napcat.agent.session.SessionKey;
+import com.napcat.agent.session.SessionManager;
 import com.napcat.core.annotation.MentionFilter;
 import com.napcat.core.annotation.OnGroupMessage;
 import com.napcat.core.annotation.OnPrivateMessage;
@@ -27,6 +28,9 @@ public class AgentDemoBot {
     @Lazy
     private NapCatAgent agent;
 
+    @Autowired(required = false)
+    private SessionManager sessionManager;
+
     @Autowired
     private BotProperties botProperties;
 
@@ -45,17 +49,16 @@ public class AgentDemoBot {
     @OnPrivateMessage
     @MentionFilter
     public void onAt(GroupMessageEvent event) {
-
-
         if (agent == null) return;
-        String plainText = event.getMessage().toPlainText();
+        String prompt = event.getMessage().toAgentPrompt();
+        if (tryClearSession(event, prompt)) return;
 
         AgentConfig config = AgentConfig.builder()
                 .showToolProcess(true)
                 .ackCallback(() -> event.reply(MessageChain.ofFace(277)))  // 👍 表示收到
                 .build();
 
-        agent.chat(event.getUserId(), event.getGroupId(), plainText, config,
+        agent.chat(event.getUserId(), event.getGroupId(), prompt, config,
                         event::reply)
                 .thenAccept(event::reply);
     }
@@ -65,11 +68,11 @@ public class AgentDemoBot {
     public void notAt(GroupMessageEvent event) {
         if (agent == null) return;
 
-
-        String plainText = event.getMessage().toPlainText();
+        String prompt = event.getMessage().toAgentPrompt();
 
         // 剔除唤醒关键词
-        String cleanedText = removeWakeWords(plainText, keyboards);
+        String cleanedText = removeWakeWords(prompt, keyboards);
+        if (tryClearSession(event, cleanedText)) return;
 
         AgentConfig config = AgentConfig.builder()
                 .showToolProcess(true)
@@ -79,6 +82,20 @@ public class AgentDemoBot {
         agent.chat(event.getUserId(), event.getGroupId(), cleanedText, config,
                         event::reply)
                 .thenAccept(event::reply);
+    }
+
+    /**
+     * 检测是否为会话清空命令（/new 或 /clear），如果是则执行清空并返回 true。
+     */
+    private boolean tryClearSession(GroupMessageEvent event, String text) {
+        if (sessionManager == null) return false;
+        String trimmed = text.trim();
+        if ("/new".equals(trimmed) || "/clear".equals(trimmed)) {
+            sessionManager.clear(new SessionKey(event.getUserId(), event.getGroupId()));
+            event.reply("会话已重置");
+            return true;
+        }
+        return false;
     }
 
     /**

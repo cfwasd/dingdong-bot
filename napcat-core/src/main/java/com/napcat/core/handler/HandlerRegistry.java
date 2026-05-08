@@ -23,7 +23,7 @@ public class HandlerRegistry implements BotDispatcher {
 
     private final BotProperties properties;
     private final List<HandlerEntry<?>> handlers = new ArrayList<>();
-    private final Map<String, CommandEntry> commands = new ConcurrentHashMap<>();
+    private final Map<String, List<CommandEntry>> commands = new ConcurrentHashMap<>();
     private final Map<Class<? extends OB11Event>, List<Consumer<OB11Event>>> eventHandlers = new ConcurrentHashMap<>();
 
     /** 当事件未被任何 handler 处理时的兜底回调（用于 at-me-trigger 等场景） */
@@ -66,7 +66,8 @@ public class HandlerRegistry implements BotDispatcher {
 
     @Override
     public void registerCommand(String template, BiConsumer<MessageEvent, CommandHandler.CommandArgs> handler, Predicate<MessageEvent> filter) {
-        commands.put(template, new CommandEntry(template, handler, filter));
+        commands.computeIfAbsent(template, k -> new ArrayList<>())
+                .add(new CommandEntry(template, handler, filter, null));
     }
 
     public void registerBean(Object bean) {
@@ -134,10 +135,13 @@ public class HandlerRegistry implements BotDispatcher {
             Predicate<Object> eventFilter = createEventFilter(annotations);
             Predicate<MessageEvent> msgFilter = eventFilter == null ? null :
                     e -> eventFilter.test(e);
+            Class<? extends MessageEvent> eventType = null;
+            if (hasGroupMessage && !hasPrivateMessage) eventType = GroupMessageEvent.class;
+            if (hasPrivateMessage && !hasGroupMessage) eventType = PrivateMessageEvent.class;
             CommandEntry entry = new CommandEntry(template,
-                    (event, args) -> invokeMethod(bean, method, event, args), msgFilter);
-            commands.put(template, entry);
-            log.debug("Registered command handler: {} on method {}", template, method.getName());
+                    (event, args) -> invokeMethod(bean, method, event, args), msgFilter, eventType);
+            commands.computeIfAbsent(template, k -> new ArrayList<>()).add(entry);
+            log.debug("Registered command handler: {} on method {} type={}", template, method.getName(), eventType);
             return;
         }
 
@@ -172,6 +176,13 @@ public class HandlerRegistry implements BotDispatcher {
             }
             Object result = method.invoke(bean, argsArray);
             handleReturnValue(result, event);
+        } catch (java.lang.reflect.InvocationTargetException ite) {
+            Throwable cause = ite.getCause();
+            if (cause instanceof StopRoutingException) {
+                log.debug("Handler stopped routing: {}.{}", bean.getClass().getName(), method.getName());
+            } else {
+                log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), ite);
+            }
         } catch (Exception e) {
             log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), e);
         }
@@ -190,6 +201,13 @@ public class HandlerRegistry implements BotDispatcher {
             }
             Object result = method.invoke(bean, argsArray);
             handleReturnValue(result, event);
+        } catch (java.lang.reflect.InvocationTargetException ite) {
+            Throwable cause = ite.getCause();
+            if (cause instanceof StopRoutingException) {
+                log.debug("Handler stopped routing: {}.{}", bean.getClass().getName(), method.getName());
+            } else {
+                log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), ite);
+            }
         } catch (Exception e) {
             log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), e);
         }
@@ -230,7 +248,7 @@ public class HandlerRegistry implements BotDispatcher {
 
         // 1. 命令匹配（消息事件）
         if (event instanceof MessageEvent msgEvent) {
-            String plainText = msgEvent.getPlainText();
+            String plainText = msgEvent.getPlainText().trim();
             
             // 打印收到的消息详情
             if (msgEvent instanceof GroupMessageEvent groupEvent) {
@@ -245,21 +263,24 @@ public class HandlerRegistry implements BotDispatcher {
             }
             
             // 命令匹配逻辑
-            for (CommandEntry entry : commands.values()) {
-                if (entry.filter != null && !entry.filter.test(msgEvent)) continue;
-                CommandHandler.CommandArgs args = matchCommand(entry.template, plainText);
-                if (args != null) {
-                    log.info("命令匹配成功: 模板='{}', 消息='{}', 参数={}", entry.template, plainText, args);
-                    try {
-                        entry.handler.accept(msgEvent, args);
-                        results.add(new HandlerResult(true, null));
-                    } catch (StopRoutingException sre) {
-                        log.debug("Command handler stopped routing");
-                        results.add(new HandlerResult(true, null));
-                        return results;
-                    } catch (Exception e) {
-                        log.error("Command handler error", e);
-                        results.add(new HandlerResult(false, e));
+            for (List<CommandEntry> entries : commands.values()) {
+                for (CommandEntry entry : entries) {
+                    if (entry.eventType != null && !entry.eventType.isInstance(msgEvent)) continue;
+                    if (entry.filter != null && !entry.filter.test(msgEvent)) continue;
+                    CommandHandler.CommandArgs args = matchCommand(entry.template, plainText);
+                    if (args != null) {
+                        log.info("命令匹配成功: 模板='{}', 消息='{}', 参数={}", entry.template, plainText, args);
+                        try {
+                            entry.handler.accept(msgEvent, args);
+                            results.add(new HandlerResult(true, null));
+                        } catch (StopRoutingException sre) {
+                            log.debug("Command handler stopped routing");
+                            results.add(new HandlerResult(true, null));
+                            return results;
+                        } catch (Exception e) {
+                            log.error("Command handler error", e);
+                            results.add(new HandlerResult(false, e));
+                        }
                     }
                 }
             }
@@ -446,6 +467,8 @@ public class HandlerRegistry implements BotDispatcher {
         private final String template;
         private final BiConsumer<MessageEvent, CommandHandler.CommandArgs> handler;
         private final Predicate<MessageEvent> filter;
+        /** 命令绑定的事件类型；null 表示不限制（同时标注了 @OnGroupMessage 和 @OnPrivateMessage 时也视为 null） */
+        private final Class<? extends MessageEvent> eventType;
     }
 
     public record HandlerResult(boolean success, Throwable error) {}

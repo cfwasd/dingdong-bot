@@ -10,8 +10,9 @@
 
 - **多轮思考**：收到用户消息后，Agent 可以多次调用 LLM，每轮决定直接回复或调用工具
 - **工具调用**：自动将 `@Tool` 标记的方法转换为 LLM 的 Function Calling Schema
-- **会话隔离**：按用户 QQ 号隔离会话上下文，支持过期清理
+- **会话隔离**：按 `userId + groupId` 复合键隔离会话上下文，支持过期清理
 - **多 LLM 后端**：OpenAI、Claude、Ollama、自定义 OpenAI 端点
+- **内置工具**：联网搜索 (DuckDuckGo)、网页抓取、日期时间查询
 
 默认最大思考轮数为 5 轮，超过则返回提示信息。
 
@@ -27,7 +28,6 @@ napcat:
     enabled: true
     max-react-rounds: 5
     system-prompt: "你是一个有用的 QQ 机器人助手，回答简洁。"
-
   llm:
     provider: openai
     openai:
@@ -50,7 +50,7 @@ public class AgentBot {
     @MentionFilter
     public void onAt(GroupMessageEvent event) {
         String plainText = event.getMessage().toPlainText();
-        agent.chat(event.getUserId(), plainText)
+        agent.chat(event.getUserId(), event.getGroupId(), plainText)
             .thenAccept(reply -> event.reply(reply));
     }
 }
@@ -61,7 +61,7 @@ public class AgentBot {
 ```java
 @OnPrivateMessage
 public void onPrivate(PrivateMessageEvent event) {
-    agent.chat(event.getUserId(), event.getPlainText())
+    agent.chat(event.getUserId(), SessionKey.PRIVATE, event.getPlainText())
         .thenAccept(event::reply);
 }
 ```
@@ -72,7 +72,7 @@ public void onPrivate(PrivateMessageEvent event) {
 @OnGroupMessage
 @Command("/ai {prompt}")
 public void aiCommand(GroupMessageEvent event, @Param("prompt") String prompt) {
-    agent.chat(event.getUserId(), prompt)
+    agent.chat(event.getUserId(), event.getGroupId(), prompt)
         .thenAccept(event::reply);
 }
 ```
@@ -85,7 +85,7 @@ napcat:
     at-me-trigger: true  # 被 @ 时自动走 Agent，无需写 Handler
 ```
 
-开启后，所有被 @ 的群消息会自动进入 Agent 流程，无需额外代码。
+开启后，所有被 @ 的群消息或包含唤醒词的消息会自动进入 Agent 流程，无需额外代码。
 
 ---
 
@@ -107,7 +107,6 @@ public class CalculatorTool {
         @ToolParam(description = "数学表达式，如 15 * 3 + 2", required = true) String expression
     ) {
         try {
-            // 简单实现，实际可用更安全的表达式引擎
             return String.valueOf(new ScriptEngineManager()
                 .getEngineByName("JavaScript")
                 .eval(expression));
@@ -139,35 +138,13 @@ public class WeatherTool {
 }
 ```
 
-### 3.3 返回结构化数据
-
-```java
-@Component
-public class SearchTool {
-
-    @Tool(
-        name = "search_user",
-        description = "在群成员中搜索用户"
-    )
-    @ToolResponse(description = "返回用户列表，每个用户包含 qq、nickname、role")
-    public List<UserInfo> searchUser(
-        @ToolParam(description = "搜索关键词，支持昵称或 QQ 号模糊匹配") String keyword,
-        @Event GroupMessageEvent event   // 可注入当前事件获取群号
-    ) {
-        long groupId = event.getGroupId();
-        // ... 搜索逻辑
-        return userList;
-    }
-}
-```
-
-### 3.4 工具参数注解
+### 3.3 工具参数注解
 
 ```java
 public @interface ToolParam {
-    String description();      // 参数描述，LLM 据此决定如何传值
+    String description();              // 参数描述，LLM 据此决定如何传值
     boolean required() default false;  // 是否必填
-    String[] enums() default {};       // 枚举值（如 ["celsius", "fahrenheit"]）
+    String[] enums() default {};       // 枚举值
     String type() default "string";    // json schema 类型：string/number/integer/boolean/array/object
 }
 ```
@@ -227,18 +204,40 @@ napcat:
 @Autowired
 private NapCatAgent agent;
 
-public void handle(Event event) {
+public void handle(GroupMessageEvent event) {
     // 单次调用，使用默认配置
-    agent.chat(userId, "你好").thenAccept(event::reply);
+    agent.chat(event.getUserId(), event.getGroupId(), "你好")
+        .thenAccept(event::reply);
 
     // 自定义参数
     AgentConfig config = AgentConfig.builder()
         .maxRounds(3)
         .systemPrompt("你是专业客服")
-        .timeout(10000)
+        .timeoutPerRound(10000)
+        .showToolProcess(true)
+        .ackCallback(() -> event.reply(MessageChain.ofFace(277)))  // 立即回复表情表示已收到
         .build();
 
-    agent.chat(userId, "问题", config).thenAccept(event::reply);
+    agent.chat(event.getUserId(), event.getGroupId(), "问题", config,
+        toolMsg -> event.reply(toolMsg))  // 工具执行过程回调
+        .thenAccept(event::reply);
+}
+```
+
+**AgentConfig 字段：**
+
+```java
+@Data
+@Builder
+public class AgentConfig {
+    @Builder.Default
+    private int maxRounds = 5;               // 最大思考轮数
+    private String systemPrompt;              // 系统提示词
+    @Builder.Default
+    private long timeoutPerRound = 30000;     // 每轮超时（ms）
+    @Builder.Default
+    private boolean showToolProcess = false;  // 是否回传工具执行过程
+    private Runnable ackCallback;             // 消息确认回调（如回复表情）
 }
 ```
 
@@ -248,9 +247,10 @@ public void handle(Event event) {
 
 ### 5.1 默认行为
 
-- 按 `userId` 隔离会话
-- 会话上下文包含：历史消息、工具调用记录、中间结果
+- 按 `SessionKey(userId, groupId)` 隔离会话。私聊时 `groupId = 0`
+- 同一用户在不同群聊、或私聊与群聊之间的会话完全隔离
 - 默认 TTL 为 3600 秒，过期自动清理
+- 默认最大历史消息 50 条，超出时自动截断（保留 system + 最近 N 条）
 
 ### 5.2 手动管理会话
 
@@ -258,39 +258,26 @@ public void handle(Event event) {
 @Autowired
 private SessionManager sessionManager;
 
-// 清除某用户会话
-sessionManager.clear(userId);
+// 清除某用户在当前群的会话
+sessionManager.clear(new SessionKey(userId, groupId));
 
-// 获取会话上下文（用于调试或持久化）
-Session session = sessionManager.get(userId);
-List<Message> history = session.getHistory();
+// 清除某用户的私聊会话
+sessionManager.clear(SessionKey.ofPrivate(userId));
 
-// 设置全局会话 TTL
-napcat:
-  agent:
-    session-ttl: 7200  # 2 小时
+// 获取会话上下文（用于调试）
+Session session = sessionManager.get(new SessionKey(userId, groupId));
+List<ChatMessage> history = session.getHistory();
 ```
 
-### 5.3 会话事件监听
+**SessionKey 定义：**
 
 ```java
-@Component
-public class SessionListener implements SessionEventListener {
-
-    @Override
-    public void onSessionCreated(long userId) {
-        System.out.println("新会话：" + userId);
-    }
-
-    @Override
-    public void onSessionExpired(long userId) {
-        System.out.println("会话过期：" + userId);
-    }
-
-    @Override
-    public void onSessionCleared(long userId) {
-        System.out.println("会话清除：" + userId);
-    }
+public record SessionKey(long userId, long groupId) {
+    public static final long PRIVATE = 0L;
+    public boolean isPrivate();
+    public boolean isGroup();
+    public static SessionKey ofPrivate(long userId);
+    public static SessionKey ofGroup(long userId, long groupId);
 }
 ```
 
@@ -352,9 +339,15 @@ Ollama 无需 API Key，适合本地开发测试。
 实现 `LlmProvider` 接口：
 
 ```java
+public interface LlmProvider {
+    String getProviderName();
+    CompletableFuture<LlmResponse> chat(Session session, String input, List<ToolSchema> tools);
+}
+```
+
+```java
 @Component
 public class MyLlmProvider implements LlmProvider {
-
     @Override
     public String getProviderName() {
         return "my-llm";
@@ -368,77 +361,44 @@ public class MyLlmProvider implements LlmProvider {
 }
 ```
 
-然后在配置中指定：
+---
+
+## 七、内置工具
+
+框架自带三个内置工具，可通过配置开启/关闭：
 
 ```yaml
 napcat:
-  llm:
-    provider: my-llm
+  agent:
+    builtin:
+      web-search:
+        enabled: true
+      fetch-url:
+        enabled: true
+      date-time:
+        enabled: true
 ```
+
+| 工具名 | 功能 | 说明 |
+|--------|------|------|
+| `web_search` | 联网搜索 | 基于 DuckDuckGo，免费 |
+| `fetch_url` | 抓取网页 | HTTP 获取指定 URL 的文本内容 |
+| `get_current_time` | 日期时间 | 获取当前时间、计算日期间隔等 |
 
 ---
 
-## 七、错误处理
+## 八、错误处理
 
-### 7.1 常见异常
+Agent 内部对常见错误做了处理：
 
-| 异常 | 原因 | 处理 |
-|------|------|------|
-| `LlmTimeoutException` | LLM 调用超时 | 提示用户网络繁忙 |
-| `LlmRateLimitException` | 触发限流 | 提示用户稍后再试 |
-| `ToolExecutionException` | 工具执行出错 | Agent 会收到错误信息，尝试修复或告知用户 |
-| `MaxRoundsExceededException` | 超过最大思考轮数 | 返回提示：思考次数过多 |
+- **API 请求错误（4xx）**：不返回消息给用户，避免刷屏
+- **其他异常**：返回 "处理出错了，请稍后再试。" 并记录日志
+- **超过最大轮数**：返回 "思考次数过多，请简化问题。"
 
-### 7.2 全局 Agent 异常处理
-
-```java
-@Component
-public class AgentExceptionHandler {
-
-    @EventListener
-    public void onAgentError(AgentErrorEvent event) {
-        Throwable ex = event.getCause();
-        long userId = event.getUserId();
-
-        if (ex instanceof LlmTimeoutException) {
-            api.sendPrivateMessage(userId, "LLM 响应超时，请稍后再试");
-        }
-    }
-}
-```
-
----
-
-## 八、调试与观测
-
-### 8.1 日志
-
-开启 debug 日志查看 Agent 思考过程：
+开启 DEBUG 日志查看 Agent 思考过程：
 
 ```yaml
 logging:
   level:
     com.napcat.agent: DEBUG
 ```
-
-输出示例：
-
-```
-[Agent] User(123456): 北京天气怎么样
-[Agent] Round 1/5 -> Tool: get_weather(city=北京)
-[Agent] Tool result: 北京 晴 25°C
-[Agent] Round 2/5 -> Reply: 北京今天晴天，25°C。
-[Agent] Completed in 2 rounds, cost 1.2s
-```
-
-### 8.2 指标
-
-框架暴露以下 Micrometer 指标（Spring Boot Actuator）：
-
-| 指标名 | 类型 | 说明 |
-|--------|------|------|
-| `napcat.agent.chat.total` | Counter | Agent 调用总次数 |
-| `napcat.agent.chat.duration` | Timer | Agent 调用耗时 |
-| `napcat.agent.rounds` | DistributionSummary | 每轮对话的思考轮数分布 |
-| `napcat.agent.tool.calls` | Counter | 工具调用总次数 |
-| `napcat.agent.tool.errors` | Counter | 工具调用错误次数 |

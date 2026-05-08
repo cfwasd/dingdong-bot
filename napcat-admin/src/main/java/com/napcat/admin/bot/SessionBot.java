@@ -7,6 +7,7 @@ import com.napcat.core.annotation.OnGroupMessage;
 import com.napcat.core.annotation.OnPrivateMessage;
 import com.napcat.core.event.GroupMessageEvent;
 import com.napcat.core.event.PrivateMessageEvent;
+import com.napcat.core.exception.StopRoutingException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,7 @@ public class SessionBot {
         if (sessionManager == null) return;
         sessionManager.clear(new SessionKey(event.getUserId(), event.getGroupId()));
         event.reply("会话已重置");
+        throw new StopRoutingException();
     }
 
     /** 私聊中 /new 重置该用户的私聊会话 */
@@ -35,5 +37,6 @@ public class SessionBot {
         if (sessionManager == null) return;
         sessionManager.clear(SessionKey.ofPrivate(event.getUserId()));
         event.reply("会话已重置");
+        throw new StopRoutingException();
     }
 }

@@ -64,8 +64,8 @@ public class NapCatLifecycle implements SmartLifecycle {
                 registry.setFallbackHandler(event -> {
                     if (event instanceof GroupMessageEvent ge
                             && (ge.getMessage().isAt(botProperties.getSelfId())
-                                || botProperties.matchesWakeWord(ge.getMessage().toPlainText()))) {
-                        String prompt = ge.getMessage().toPlainText();
+                                || botProperties.matchesWakeWord(ge.getMessage().toAgentPrompt()))) {
+                        String prompt = ge.getMessage().toAgentPrompt();
                         com.napcat.agent.agent.AgentConfig config =
                                 com.napcat.agent.agent.AgentConfig.builder()
                                         .showToolProcess(true)

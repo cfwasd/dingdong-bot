@@ -58,6 +58,8 @@ public class OllamaProvider implements LlmProvider {
                 node.put("role", msg.getRole());
                 if (msg.getContent() != null) {
                     node.put("content", msg.getContent());
+                } else {
+                    node.put("content", "");
                 }
                 if (msg.getName() != null) {
                     node.put("name", msg.getName());
@@ -104,6 +106,7 @@ public class OllamaProvider implements LlmProvider {
             }
 
             String json = mapper.writeValueAsString(root);
+            log.error("Ollama request: {}", json);
             RequestBody body = RequestBody.create(json, MediaType.parse("application/json"));
             Request request = new Request.Builder()
                     .url(baseUrl + "/api/chat")

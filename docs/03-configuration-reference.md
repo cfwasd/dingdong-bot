@@ -2,6 +2,8 @@
 
 所有配置项通过 `application.yml` 或 `application.properties` 设置，前缀为 `napcat`。
 
+配置类源码：`com.napcat.starter.config.NapCatProperties`
+
 ---
 
 ## 完整配置示例
@@ -36,16 +38,20 @@ napcat:
       port: 8080
       token: ""
       path: /napcat/webhook             # 接收上报的路径
+      api-url: ""                       # 反向 HTTP Client URL，用于主动调用 NapCat API
+      api-token: ""                     # 反向 HTTP Client Token
+      api-timeout: 30000                # 反向 HTTP Client 超时（毫秒）
 
   # ========== Bot 基础配置 ==========
   bot:
-    self-id: 123456789                  # 当前机器人 QQ 号
-    command-prefix: "/"                 # 命令前缀，空字符串表示无前缀
+    self-id: 0                          # 当前机器人 QQ 号
+    command-prefix: ""                  # 命令前缀，空字符串表示无前缀
     at-me-trigger: true                 # 被 @ 时是否自动触发 Agent（需 agent.enabled=true）
     ignore-self-message: true           # 是否过滤自己发的消息
-    super-users:                        # 超级管理员 QQ 号列表
-      - 111111111
-      - 222222222
+    super-users: []                     # 超级管理员 QQ 号列表
+    wake-words:                         # 关键词唤醒列表
+      - "机器人"
+      - "bot"
 
   # ========== LLM 配置 ==========
   llm:
@@ -53,7 +59,7 @@ napcat:
 
     openai:
       base-url: https://api.openai.com/v1
-      api-key: ${OPENAI_API_KEY}
+      api-key: ""
       model: gpt-4o-mini
       max-tokens: 2000
       temperature: 0.7
@@ -61,7 +67,7 @@ napcat:
 
     anthropic:
       base-url: https://api.anthropic.com
-      api-key: ${ANTHROPIC_API_KEY}
+      api-key: ""
       model: claude-sonnet-4-6
       max-tokens: 2000
       temperature: 0.7
@@ -69,23 +75,33 @@ napcat:
 
     ollama:
       base-url: http://localhost:11434
+      api-key: ""
       model: llama3
       timeout: 120000
 
     custom:
-      base-url: http://localhost:8000/v1  # 任意兼容 OpenAI 协议的端点
-      api-key: ""                         # 可为空
+      base-url: ""                      # 任意兼容 OpenAI 协议的端点
+      api-key: ""
       model: default
       max-tokens: 2000
       timeout: 60000
 
   # ========== Agent 配置 ==========
   agent:
-    enabled: true
+    enabled: false
     max-react-rounds: 5                 # ReAct 最大思考轮数
-    system-prompt: "你是一个有用的 QQ 机器人助手。"
-    timeout-per-round: 30000            # 每轮 LLM 调用超时
+    system-prompt: "你是一个有用的 QQ 助手。你可以使用提供的工具（tools）来完成任务。..."
+    timeout-per-round: 30000            # 每轮 LLM 调用超时（毫秒）
     session-ttl: 3600                   # 会话过期时间，秒
+    show-tool-process: false            # 是否将工具调用过程发送到聊天
+    max-history-messages: 50            # 会话历史最大消息条数，超出时自动截断
+    builtin:
+      web-search:
+        enabled: true                   # 联网搜索 (DuckDuckGo)
+      fetch-url:
+        enabled: true                   # HTTP 抓取网页内容
+      date-time:
+        enabled: true                   # 日期时间查询
 
   # ========== 高级配置 ==========
   core:
@@ -94,6 +110,7 @@ napcat:
       max-pool-size: 16
       queue-capacity: 1000
     message-post-format: array          # array / string，OneBot11 上报格式
+    sync-event-processing: false        # 是否同步处理事件
 ```
 
 ---
@@ -104,16 +121,16 @@ napcat:
 
 控制与 NapCat 的通信方式，四选一。
 
-#### type = `websocket-client`（推荐）
+#### type = `websocket-client`（默认、推荐）
 
 主动连接 NapCat 的 WebSocket Server，双工通信，性能最好。
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `url` | String | 必填 | NapCat WS 地址 |
+| `url` | String | `ws://127.0.0.1:3001` | NapCat WS 地址 |
 | `token` | String | `""` | 鉴权 Token |
 | `reconnect-interval` | long | `5000` | 断线重连间隔（ms） |
-| `heart-interval` | long | `30000` | 心跳间隔（ms），0 表示不发送心跳 |
+| `heart-interval` | long | `30000` | 心跳间隔（ms） |
 | `debug` | boolean | `false` | 是否打印原始 WS 帧 |
 
 **对应 NapCat 配置：**
@@ -141,31 +158,15 @@ napcat:
 | `token` | String | `""` | 鉴权 Token |
 | `debug` | boolean | `false` | 是否打印原始 WS 帧 |
 
-**对应 NapCat 配置：**
-
-```json
-{
-  "network": {
-    "websocketClients": [{
-      "enable": true,
-      "url": "ws://bot-server:3001",
-      "token": ""
-    }]
-  }
-}
-```
-
 #### type = `http-client`
 
-主动轮询/调用 NapCat 的 HTTP API。事件接收需配合 HTTP Server 或其他机制。
+主动调用 NapCat 的 HTTP API。
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `url` | String | 必填 | NapCat HTTP 地址 |
+| `url` | String | `http://127.0.0.1:3000` | NapCat HTTP 地址 |
 | `token` | String | `""` | 鉴权 Token |
 | `timeout` | long | `30000` | HTTP 请求超时（ms） |
-
-**注意：** 纯 HTTP Client 模式下事件推送需要额外配置 NapCat 的 HTTP Client 上报到本服务。
 
 #### type = `http-server`
 
@@ -177,20 +178,11 @@ napcat:
 | `port` | int | `8080` | 监听端口 |
 | `token` | String | `""` | 鉴权 Token |
 | `path` | String | `"/napcat/webhook"` | 接收上报的 URL 路径 |
+| `api-url` | String | `""` | 反向 HTTP Client URL，用于主动调用 NapCat API |
+| `api-token` | String | `""` | 反向 HTTP Client Token |
+| `api-timeout` | long | `30000` | 反向 HTTP Client 超时（ms） |
 
-**对应 NapCat 配置：**
-
-```json
-{
-  "network": {
-    "httpClients": [{
-      "enable": true,
-      "url": "http://bot-server:8080/napcat/webhook",
-      "token": ""
-    }]
-  }
-}
-```
+**注意：** 纯 HTTP Server 模式下无法主动调用 API，需配置 `api-url` 指向 NapCat 的 HTTP Server。
 
 ---
 
@@ -199,10 +191,11 @@ napcat:
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `self-id` | long | `0` | 当前机器人 QQ 号，用于过滤自身消息和 @ 判断 |
-| `command-prefix` | String | `"/"` | 命令前缀。设为 `""` 表示无前缀，直接匹配命令模板开头 |
+| `command-prefix` | String | `""` | 命令前缀。设为空字符串表示无前缀，直接匹配命令模板开头 |
 | `at-me-trigger` | boolean | `true` | 被 @ 时是否尝试走 Agent 流程 |
 | `ignore-self-message` | boolean | `true` | 是否忽略机器人自己发送的消息 |
 | `super-users` | List<long> | `[]` | 超级管理员 QQ 号，用于 `Role.SUPERUSER` 判断 |
+| `wake-words` | List<String> | `["机器人", "bot"]` | 关键词唤醒列表，消息包含任一唤醒词时视为触发 |
 
 ---
 
@@ -210,15 +203,15 @@ napcat:
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `provider` | String | 必填 | LLM 提供商：`openai` / `anthropic` / `ollama` / `custom` |
+| `provider` | String | `openai` | LLM 提供商：`openai` / `anthropic` / `ollama` / `custom` |
 
-各提供商的专有配置见上方完整示例。通用字段：
+各提供商专有配置：
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `base-url` | String | 必填 | API 基础地址 |
+| `base-url` | String | 见上方完整示例 | API 基础地址 |
 | `api-key` | String | `""` | API Key（Ollama 可为空） |
-| `model` | String | 必填 | 模型名称 |
+| `model` | String | 见上方完整示例 | 模型名称 |
 | `max-tokens` | int | `2000` | 最大生成 Token 数 |
 | `temperature` | double | `0.7` | 采样温度 |
 | `timeout` | long | `60000` | 单次请求超时（ms） |
@@ -230,10 +223,20 @@ napcat:
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `enabled` | boolean | `false` | 是否启用 Agent 功能 |
-| `max-react-rounds` | int | `5` | ReAct 循环最大轮数，超过则返回提示 |
-| `system-prompt` | String | `""` | Agent 系统提示词，空则使用默认提示 |
+| `max-react-rounds` | int | `5` | ReAct 循环最大轮数 |
+| `system-prompt` | String | 内置提示 | Agent 系统提示词 |
 | `timeout-per-round` | long | `30000` | 每轮 LLM 调用超时（ms） |
 | `session-ttl` | long | `3600` | 会话上下文过期时间（秒） |
+| `show-tool-process` | boolean | `false` | 是否将工具调用过程发送到聊天 |
+| `max-history-messages` | int | `50` | 会话历史最大消息条数，超出时自动截断（保留 system + 最近 N 条） |
+
+**内置工具开关：**
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `builtin.web-search.enabled` | boolean | `true` | 联网搜索 (DuckDuckGo) |
+| `builtin.fetch-url.enabled` | boolean | `true` | HTTP 抓取网页内容 |
+| `builtin.date-time.enabled` | boolean | `true` | 日期时间查询 |
 
 ---
 
@@ -245,6 +248,7 @@ napcat:
 | `event-executor.max-pool-size` | int | `16` | 最大线程数 |
 | `event-executor.queue-capacity` | int | `1000` | 任务队列容量 |
 | `message-post-format` | String | `"array"` | OneBot11 消息上报格式：`array` 或 `string` |
+| `sync-event-processing` | boolean | `false` | 是否同步处理事件 |
 
 ---
 
@@ -271,14 +275,3 @@ napcat:
     openai:
       api-key: ${OPENAI_API_KEY}
 ```
-
----
-
-## 配置验证
-
-框架启动时会校验配置，以下情况会报错并阻止启动：
-
-- `adapter.type` 未设置或非法
-- `adapter.*.url` 格式错误
-- `llm.provider` 已启用但对应配置缺失 `base-url`
-- `bot.self-id` 为 0 且启用了 `ignore-self-message`（警告级别）

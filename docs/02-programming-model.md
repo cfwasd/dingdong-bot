@@ -1,11 +1,6 @@
 # 编程模型
 
-本文档描述框架提供的所有**注解**和**接口**，以及它们的使用方式。
-
-框架同时支持两种编程模型，两者最终汇入同一路由表，行为完全一致：
-
-- **注解驱动**：在方法上加注解，适合快速开发
-- **接口驱动**：实现指定接口，适合插件化、动态注册
+框架同时支持**注解驱动**和**接口驱动**两种编程模型，两者最终汇入同一路由表，行为完全一致。
 
 ---
 
@@ -25,6 +20,29 @@
 | `@OnRequest` | `RequestEvent` 子类 | 请求事件（加群/加好友） |
 | `@OnMetaEvent` | `MetaEvent` | 元事件（心跳、生命周期） |
 
+**源码定义：**
+
+```java
+public @interface OnGroupMessage {
+    long[] botId() default {};
+}
+
+public @interface OnPrivateMessage {
+    long[] botId() default {};
+}
+
+public @interface OnNotice {
+    Class<? extends NoticeEvent> value() default NoticeEvent.class;
+}
+
+public @interface OnRequest {
+    Class<? extends RequestEvent> value() default RequestEvent.class;
+}
+
+public @interface OnMetaEvent {
+}
+```
+
 **示例：**
 
 ```java
@@ -33,14 +51,14 @@ public class HelloBot {
 
     @OnGroupMessage
     public void onGroup(GroupMessageEvent event) {
-        if (event.getMessage().contains("hello")) {
+        if (event.getRawMessage().contains("hello")) {
             event.reply("Hello!");
         }
     }
 
     @OnPrivateMessage
     public void onPrivate(PrivateMessageEvent event) {
-        event.reply("私聊收到：" + event.getMessage().toPlainText());
+        event.reply("私聊收到：" + event.getPlainText());
     }
 }
 ```
@@ -57,15 +75,6 @@ public void onAny(MessageEvent event) {
 }
 ```
 
-**注解属性：**
-
-```java
-public @interface OnGroupMessage {
-    /** 限定只响应指定 botId，默认不限制 */
-    long[] botId() default {};
-}
-```
-
 ---
 
 ### 1.2 命令注解
@@ -74,7 +83,6 @@ public @interface OnGroupMessage {
 
 ```java
 public @interface Command {
-    /** 命令模板，如 "/天气 {city}" */
     String value();
 }
 ```
@@ -121,6 +129,18 @@ public void ban(GroupMessageEvent event,
 }
 ```
 
+`CommandArgs` 实际支持的方法：
+
+```java
+public class CommandArgs {
+    public String get(String key);
+    public int getInt(String key);
+    public long getLong(String key);
+    public boolean getBoolean(String key);  // "true"/"1"/"yes" 为 true
+    public boolean contains(String key);
+}
+```
+
 **特殊参数类型：**
 
 | 参数类型 | 提取方式 |
@@ -141,7 +161,27 @@ public void ban(GroupMessageEvent event,
 |------|------|---------|
 | `@MentionFilter` | 要求消息中 @ 了当前机器人 | Agent 自动回复 |
 | `@RoleFilter(Role.ADMIN)` | 要求发送者是指定角色 | 管理员命令 |
-| `@RegexFilter("^\\d{6}$")` | 要求消息匹配正则 | 验证码、ID 输入 |
+| `@WakeFilter` | 要求消息包含配置的唤醒词 | 关键词唤醒 |
+
+**源码定义：**
+
+```java
+public @interface MentionFilter {
+}
+
+public @interface RoleFilter {
+    Role value();
+    enum Role { OWNER, ADMIN, MEMBER, SUPERUSER }
+}
+
+/**
+ * 关键词唤醒过滤器。
+ * 唤醒词列表在 napcat.bot.wake-words 中配置，默认包含 ["机器人", "bot"]。
+ * 与 @MentionFilter 互斥时取 OR 语义（满足任一即触发）。
+ */
+public @interface WakeFilter {
+}
+```
 
 **示例：**
 
@@ -156,9 +196,16 @@ public void onAtMe(GroupMessageEvent event) {
 // 只有管理员才能执行
 @OnGroupMessage
 @Command("/清理")
-@RoleFilter(Role.ADMIN)
+@RoleFilter(RoleFilter.Role.ADMIN)
 public void clear(GroupMessageEvent event) {
     // ...
+}
+
+// 消息包含"机器人"或"bot"时触发
+@OnGroupMessage
+@WakeFilter
+public void onWake(GroupMessageEvent event) {
+    event.reply("我在！");
 }
 ```
 
@@ -168,12 +215,15 @@ public void clear(GroupMessageEvent event) {
 
 用于命令方法的参数上。
 
+```java
+public @interface Param {
+    String value();
+}
+```
+
 | 注解 | 说明 |
 |------|------|
 | `@Param("name")` | 从命令模板中提取对应参数 |
-| `@Event` | 注入当前事件对象（当方法参数中没有事件类型时） |
-| `@Sender` | 注入发送者信息 |
-| `@BotId` | 注入当前机器人 QQ 号 |
 
 ---
 
@@ -181,9 +231,24 @@ public void clear(GroupMessageEvent event) {
 
 | 注解 | 说明 |
 |------|------|
-| `@AgentMode` | 标记该方法走 Agent 流程，方法返回值或异常不影响 |
 | `@Tool` | 标记一个方法为 Agent 可调用的工具 |
 | `@ToolParam` | 标记工具参数的描述和约束 |
+
+**源码定义：**
+
+```java
+public @interface Tool {
+    String name();
+    String description();
+}
+
+public @interface ToolParam {
+    String description();
+    boolean required() default false;
+    String[] enums() default {};
+    String type() default "string";
+}
+```
 
 **@Tool 示例：**
 
@@ -229,7 +294,7 @@ public @interface OnGroupAtMe {
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 @Command
-@RoleFilter(Role.ADMIN)
+@RoleFilter(RoleFilter.Role.ADMIN)
 public @interface AdminCommand {
     @AliasFor(annotation = Command.class, attribute = "value")
     String value();
@@ -256,29 +321,21 @@ public void kick(GroupMessageEvent event, @Param("user") long userId) { }
 
 ```java
 public interface EventHandler<E extends OB11Event> {
-    /** 订阅的事件类型 */
     Class<E> getEventType();
-    /** 处理事件 */
     void handle(E event);
-}
-```
 
-**特化接口：**
-
-```java
-// 群消息
-public interface GroupMessageHandler extends EventHandler<GroupMessageEvent> {
-    @Override
-    default Class<GroupMessageEvent> getEventType() {
-        return GroupMessageEvent.class;
+    interface GroupMessageHandler extends EventHandler<GroupMessageEvent> {
+        @Override
+        default Class<GroupMessageEvent> getEventType() {
+            return GroupMessageEvent.class;
+        }
     }
-}
 
-// 私聊消息
-public interface PrivateMessageHandler extends EventHandler<PrivateMessageEvent> {
-    @Override
-    default Class<PrivateMessageEvent> getEventType() {
-        return PrivateMessageEvent.class;
+    interface PrivateMessageHandler extends EventHandler<PrivateMessageEvent> {
+        @Override
+        default Class<PrivateMessageEvent> getEventType() {
+            return PrivateMessageEvent.class;
+        }
     }
 }
 ```
@@ -287,7 +344,7 @@ public interface PrivateMessageHandler extends EventHandler<PrivateMessageEvent>
 
 ```java
 @Component
-public class WelcomeHandler implements GroupMessageHandler {
+public class WelcomeHandler implements EventHandler.GroupMessageHandler {
     @Override
     public void handle(GroupMessageEvent event) {
         if (event.getMessage().contains("新人")) {
@@ -303,10 +360,14 @@ public class WelcomeHandler implements GroupMessageHandler {
 
 ```java
 public interface CommandHandler {
-    /** 命令模板，如 "/天气 {city}" */
     String getCommand();
-    /** 处理命令 */
     void handle(MessageEvent event, CommandArgs args);
+
+    interface FilterableCommandHandler extends CommandHandler {
+        default boolean filter(MessageEvent event) {
+            return true;
+        }
+    }
 }
 ```
 
@@ -331,15 +392,8 @@ public class WeatherHandler implements CommandHandler {
 **带过滤的命令处理器：**
 
 ```java
-public interface FilterableCommandHandler extends CommandHandler {
-    /** 返回 true 表示接受该事件 */
-    default boolean filter(MessageEvent event) {
-        return true;
-    }
-}
-
 @Component
-public class AdminClearHandler implements FilterableCommandHandler {
+public class AdminClearHandler implements CommandHandler.FilterableCommandHandler {
     @Override
     public String getCommand() {
         return "/清理";
@@ -347,7 +401,7 @@ public class AdminClearHandler implements FilterableCommandHandler {
 
     @Override
     public boolean filter(MessageEvent event) {
-        return event.getSender().getRole() == Role.ADMIN;
+        return event.getSender().isAdmin();
     }
 
     @Override
@@ -367,6 +421,15 @@ public class AdminClearHandler implements FilterableCommandHandler {
 public interface BotInitializer {
     void initialize(BotDispatcher dispatcher);
 }
+
+public interface BotDispatcher {
+    void onGroupMessage(Consumer<GroupMessageEvent> handler);
+    void onPrivateMessage(Consumer<PrivateMessageEvent> handler);
+    void onEvent(Class<? extends OB11Event> type, Consumer<OB11Event> handler);
+    void registerCommand(String template, BiConsumer<MessageEvent, CommandArgs> handler);
+    void registerCommand(String template, BiConsumer<MessageEvent, CommandArgs> handler,
+                         Predicate<MessageEvent> filter);
+}
 ```
 
 **示例：**
@@ -376,42 +439,20 @@ public interface BotInitializer {
 public class ManualBot implements BotInitializer {
     @Override
     public void initialize(BotDispatcher dispatcher) {
-        // 注册事件处理器
         dispatcher.onGroupMessage(event -> {
             if (event.getMessage().contains("测试")) {
                 event.reply("收到测试");
             }
         });
 
-        // 注册命令
         dispatcher.registerCommand("/状态", (event, args) -> {
             event.reply("运行正常");
         });
 
-        // 注册带过滤的命令
         dispatcher.registerCommand("/管理", (event, args) -> {
             event.reply("管理员命令");
-        }, event -> event.getSender().getRole() == Role.ADMIN);
+        }, event -> event.getSender().isAdmin());
     }
-}
-```
-
-**BotDispatcher API：**
-
-```java
-public interface BotDispatcher {
-    // 事件注册
-    void onGroupMessage(Consumer<GroupMessageEvent> handler);
-    void onPrivateMessage(Consumer<PrivateMessageEvent> handler);
-    void onEvent(Class<? extends OB11Event> type, Consumer<OB11Event> handler);
-
-    // 命令注册
-    void registerCommand(String template, BiConsumer<MessageEvent, CommandArgs> handler);
-    void registerCommand(String template, BiConsumer<MessageEvent, CommandArgs> handler, Predicate<MessageEvent> filter);
-
-    // Agent 注册
-    void registerAgent(long groupId, NapCatAgent agent);
-    void registerAgent(Predicate<MessageEvent> condition, NapCatAgent agent);
 }
 ```
 
@@ -441,7 +482,7 @@ public String time() {
 @OnGroupMessage
 @Command("/图片")
 public MessageChain image() {
-    return MessageChain.image("https://example.com/a.jpg");
+    return MessageChain.ofText("给你一张图：").image("https://example.com/a.jpg");
 }
 ```
 
@@ -449,19 +490,23 @@ public MessageChain image() {
 
 ## 四、异常处理
 
-框架提供全局异常处理器，你也可以自定义：
+框架提供全局异常处理器。方法内抛出 `StopRoutingException` 可阻止后续处理器执行：
 
 ```java
-@Component
-public class MyExceptionHandler implements BotExceptionHandler {
-    @Override
-    public void handle(EventContext ctx, Throwable ex) {
-        if (ex instanceof CommandNotFoundException) {
-            ctx.getEvent().reply("未知指令，输入 /帮助 查看列表");
-        } else {
-            ctx.getEvent().reply("处理出错了，请稍后再试");
-            log.error("Bot error", ex);
-        }
+public class StopRoutingException extends RuntimeException {
+    public StopRoutingException() {
+        super("Stop routing");
+    }
+}
+```
+
+**示例：**
+
+```java
+@OnGroupMessage
+public void filterSpam(GroupMessageEvent event) {
+    if (isSpam(event)) {
+        throw new StopRoutingException(); // 不执行后续 handler
     }
 }
 ```
@@ -476,33 +521,19 @@ public class MyExceptionHandler implements BotExceptionHandler {
 
 1. `@Command`（参数化命令最精确）
 2. `@MentionFilter + @Command`
-3. `@MentionFilter`
-4. `@RegexFilter`
-5. `@OnGroupMessage` / `@OnPrivateMessage`（兜底）
+3. `@MentionFilter` / `@WakeFilter`
+4. `@OnGroupMessage` / `@OnPrivateMessage`（兜底）
 
 ### 5.2 同一优先级的排序
 
-通过 Spring 的 `@Order` 或 `@Priority` 控制：
+通过 Spring 的 `@Order` 控制：
 
 ```java
 @Component
 @Order(1)  // 数值越小优先级越高
 public class HighPriorityHandler { }
-
-@Component
-@Order(100)
-public class FallbackHandler { }
 ```
 
 ### 5.3 阻止后续路由
 
-方法内抛出 `StopRoutingException` 可阻止后续处理器执行：
-
-```java
-@OnGroupMessage
-public void filterSpam(GroupMessageEvent event) {
-    if (isSpam(event)) {
-        throw new StopRoutingException(); // 不执行后续 handler
-    }
-}
-```
+方法内抛出 `StopRoutingException` 可阻止后续处理器执行（见上文）。

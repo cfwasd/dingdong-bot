@@ -17,7 +17,7 @@
 
 ---
 
-## 二、WebSocket Client（推荐）
+## 二、WebSocket Client（默认、推荐）
 
 Bot 主动连接 NapCat 的 WebSocket Server，建立长连接后双向收发。
 
@@ -63,46 +63,18 @@ napcat:
 public class MultiBotConfig {
 
     @Bean
-    public WsClientAdapter bot1() {
+    public BotAdapter bot1() {
         return new WsClientAdapter("ws://napcat1:3001", "");
     }
 
     @Bean
-    public WsClientAdapter bot2() {
+    public BotAdapter bot2() {
         return new WsClientAdapter("ws://napcat2:3001", "");
     }
 }
 ```
 
 框架会自动将两个连接的事件都汇入同一路由表，事件中的 `selfId` 字段可区分来源。
-
-### 2.3 生命周期回调
-
-```java
-@Component
-public class WsListener implements BotAdapterListener {
-
-    @Override
-    public void onOpen(BotAdapter adapter) {
-        System.out.println("连接成功：" + adapter.getId());
-    }
-
-    @Override
-    public void onClose(BotAdapter adapter, int code, String reason) {
-        System.out.println("连接关闭：" + reason);
-    }
-
-    @Override
-    public void onError(BotAdapter adapter, Throwable ex) {
-        System.err.println("连接异常：" + ex.getMessage());
-    }
-
-    @Override
-    public void onReconnect(BotAdapter adapter, int attempt) {
-        System.out.println("第 " + attempt + " 次重连...");
-    }
-}
-```
 
 ---
 
@@ -150,7 +122,7 @@ napcat:
 
 ## 四、HTTP Client
 
-Bot 主动发送 HTTP 请求调用 NapCat API。事件接收需配合 NapCat 的 HTTP Client 上报或其他机制。
+Bot 主动发送 HTTP 请求调用 NapCat API。
 
 ### 4.1 配置
 
@@ -186,7 +158,7 @@ napcat:
 
 纯 HTTP Client 模式下，Bot 无法被动接收事件。解决方案：
 
-**方案 A：** 同时启用 HTTP Server 接收上报
+**同时启用 HTTP Server 接收上报：**
 
 ```yaml
 napcat:
@@ -198,8 +170,6 @@ napcat:
 ```
 
 并在 NapCat 中配置 HTTP Client 上报到 `http://bot-server:8080/webhook`。
-
-**方案 B：** 使用 `get_updates` 风格的轮询（框架暂不提供，需自行实现）
 
 ### 4.3 适用场景
 
@@ -240,23 +210,14 @@ napcat:
       port: 8080
       path: /napcat/webhook
       token: ""
+      api-url: "http://127.0.0.1:3000"    # 反向 HTTP Client，用于主动调用 API
+      api-token: ""
+      api-timeout: 30000
 ```
 
 ### 5.2 API 调用问题
 
-纯 HTTP Server 模式下，Bot 无法主动调用 NapCat API。解决方案：
-
-**方案 A：** 同时启用 HTTP Client
-
-```yaml
-napcat:
-  adapter:
-    type: http-client
-    http-client:
-      url: http://127.0.0.1:3000
-```
-
-**方案 B：** NapCat 侧同时开启 HTTP Server，Bot 侧同时配置 HTTP Client
+纯 HTTP Server 模式下，Bot 无法主动调用 NapCat API。需配置 `api-url` 指向 NapCat 的 HTTP Server。
 
 ### 5.3 适用场景
 
@@ -286,16 +247,7 @@ public class HybridAdapterConfig {
 }
 ```
 
-事件从所有适配器汇入同一路由表，API 调用默认使用第一个注册的适配器，也可显式指定：
-
-```java
-@Autowired
-private NapCatApi api;
-
-public void sendViaWs() {
-    api.withAdapter("wsAdapter").sendGroupMessage(123L, "msg");
-}
-```
+事件从所有适配器汇入同一路由表，API 调用默认使用第一个注册的适配器。
 
 ---
 
@@ -309,9 +261,38 @@ public interface BotAdapter {
     void start();
     void stop();
     boolean isConnected();
-    void sendApiRequest(ApiRequest<?> request, Consumer<ApiResponse> callback);
-    void setEventConsumer(Consumer<OB11Event> consumer);
+    void sendApiRequest(ApiRequest<?> request);
+    void setMessageHandler(Consumer<String> handler);
 }
 ```
 
 自定义适配器只需实现该接口并注册为 Spring Bean 即可接入框架。
+
+---
+
+## 八、事件处理线程池
+
+事件处理线程池配置：
+
+```yaml
+napcat:
+  core:
+    event-executor:
+      core-pool-size: 4
+      max-pool-size: 16
+      queue-capacity: 1000
+```
+
+默认使用 `ThreadPoolExecutor`：
+- 核心线程数：4
+- 最大线程数：16
+- 队列：有界队列 1000
+- 拒绝策略：`CallerRunsPolicy`
+
+如需同步处理事件（不启用线程池）：
+
+```yaml
+napcat:
+  core:
+    sync-event-processing: true
+```

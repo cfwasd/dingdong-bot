@@ -11,10 +11,11 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Locale;
 
 /**
- * 内置 HTTP 抓取工具，获取指定 URL 的文本内容。
- * LLM 可调用此工具读取网页内容。
+ * 内置 HTTP 抓取工具，获取指定 URL 的内容。
+ * LLM 可调用此工具读取网页、下载图片/文件/视频等资源。
  */
 @Slf4j
 @Component
@@ -22,6 +23,7 @@ import java.time.Duration;
 public class FetchUrlTool {
 
     private static final int MAX_CONTENT_LENGTH = 4000;
+    private static final int MAX_BINARY_SIZE_MB = 50;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -29,14 +31,14 @@ public class FetchUrlTool {
             .build();
 
     /**
-     * 获取指定 URL 的内容（仅文本）。
+     * 获取指定 URL 的内容。支持网页文本、图片、视频、文件等任意资源。
      *
      * @param url 要请求的 URL
-     * @return 网页文本内容（截断到 {@value #MAX_CONTENT_LENGTH} 字符）
+     * @return 网页文本内容（截断到 {@value #MAX_CONTENT_LENGTH} 字符）或资源描述信息
      */
     @Tool(
         name = "fetch_url",
-        description = "获取指定 URL 的网页文本内容。当需要阅读某个链接的详细内容时使用。"
+        description = "获取指定 URL 的内容。支持网页、图片、文件、视频等任意资源。当用户消息中包含任何链接时必须调用此工具，禁止自行推测链接内容。"
     )
     public String fetch(
         @ToolParam(description = "URL地址", required = true) String url
@@ -46,18 +48,33 @@ public class FetchUrlTool {
                     .uri(URI.create(url))
                     .timeout(Duration.ofSeconds(15))
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept", "*/*")
                     .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
                     .GET()
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {
                 return "获取失败：HTTP " + response.statusCode();
             }
 
-            String body = response.body();
-            if (body == null || body.isBlank()) {
+            byte[] bodyBytes = response.body();
+            if (bodyBytes == null || bodyBytes.length == 0) {
+                return "获取的内容为空。";
+            }
+
+            String contentType = response.headers().firstValue("Content-Type").orElse("").toLowerCase(Locale.ROOT);
+
+            // 二进制资源：图片、视频、音频、文件等
+            if (isBinaryContent(contentType)) {
+                return describeBinaryResource(url, contentType, bodyBytes.length);
+            }
+
+            // 文本资源：网页、JSON、XML、纯文本等
+            String charset = extractCharset(contentType);
+            String body = charset != null ? new String(bodyBytes, charset) : new String(bodyBytes);
+
+            if (body.isBlank()) {
                 return "获取的内容为空。";
             }
 
@@ -92,6 +109,101 @@ public class FetchUrlTool {
             log.error("Fetch URL failed: {}", url, e);
             return "获取 URL 出错：" + e.getMessage();
         }
+    }
+
+    /**
+     * 判断 Content-Type 是否为二进制资源
+     */
+    private boolean isBinaryContent(String contentType) {
+        return contentType.startsWith("image/")
+                || contentType.startsWith("video/")
+                || contentType.startsWith("audio/")
+                || contentType.equals("application/octet-stream")
+                || contentType.equals("application/pdf")
+                || contentType.equals("application/zip")
+                || contentType.equals("application/x-zip-compressed")
+                || contentType.equals("application/gzip")
+                || contentType.equals("application/x-rar-compressed")
+                || contentType.equals("application/msword")
+                || contentType.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                || contentType.equals("application/vnd.ms-excel")
+                || contentType.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                || contentType.equals("application/vnd.ms-powerpoint")
+                || contentType.equals("application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    }
+
+    /**
+     * 生成二进制资源的描述信息
+     */
+    private String describeBinaryResource(String url, String contentType, int sizeBytes) {
+        double sizeMb = sizeBytes / (1024.0 * 1024.0);
+        String type = contentType.split(";")[0].trim();
+        String typeDesc;
+        
+        if (type.startsWith("image/")) {
+            typeDesc = "图片";
+        } else if (type.startsWith("video/")) {
+            typeDesc = "视频";
+        } else if (type.startsWith("audio/")) {
+            typeDesc = "音频";
+        } else if (type.equals("application/pdf")) {
+            typeDesc = "PDF 文档";
+        } else if (type.equals("application/zip") || type.equals("application/x-zip-compressed")) {
+            typeDesc = "ZIP 压缩包";
+        } else if (type.equals("application/gzip")) {
+            typeDesc = "GZIP 压缩包";
+        } else if (type.equals("application/x-rar-compressed")) {
+            typeDesc = "RAR 压缩包";
+        } else if (type.equals("application/msword") || type.equals("application/vnd.openxmlformats-officedocument.wordprocessingml.document")) {
+            typeDesc = "Word 文档";
+        } else if (type.equals("application/vnd.ms-excel") || type.equals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) {
+            typeDesc = "Excel 表格";
+        } else if (type.equals("application/vnd.ms-powerpoint") || type.equals("application/vnd.openxmlformats-officedocument.presentationml.presentation")) {
+            typeDesc = "PPT 演示文稿";
+        } else {
+            typeDesc = "文件";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("📎 这是一个 ").append(typeDesc).append("。\n");
+        sb.append("URL：").append(url).append("\n");
+        sb.append("Content-Type：").append(contentType).append("\n");
+        sb.append("大小：");
+        if (sizeMb >= 1) {
+            sb.append(String.format("%.2f MB", sizeMb));
+        } else if (sizeBytes >= 1024) {
+            sb.append(String.format("%.2f KB", sizeBytes / 1024.0));
+        } else {
+            sb.append(sizeBytes).append(" B");
+        }
+
+        if (sizeMb > MAX_BINARY_SIZE_MB) {
+            sb.append("\n⚠️ 文件过大（超过 ").append(MAX_BINARY_SIZE_MB).append(" MB），不建议下载。");
+        }
+
+        if (contentType.startsWith("image/")) {
+            sb.append("\n💡 提示：该资源为图片，当前模型无法直接查看图片内容。如需分析图片，请使用支持多模态的模型。");
+        } else if (contentType.startsWith("video/")) {
+            sb.append("\n💡 提示：该资源为视频文件，当前模型无法直接播放或分析视频内容。");
+        } else if (contentType.startsWith("audio/")) {
+            sb.append("\n💡 提示：该资源为音频文件，当前模型无法直接播放或转录音频内容。");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 从 Content-Type 中提取字符集
+     */
+    private String extractCharset(String contentType) {
+        if (contentType == null || contentType.isEmpty()) return null;
+        int idx = contentType.indexOf("charset=");
+        if (idx == -1) return null;
+        String charset = contentType.substring(idx + 8).trim();
+        if (charset.startsWith("\"") && charset.endsWith("\"")) {
+            charset = charset.substring(1, charset.length() - 1);
+        }
+        return charset.isEmpty() ? null : charset;
     }
 
     /**
@@ -167,11 +279,11 @@ public class FetchUrlTool {
         String withoutScripts = html.replaceAll("<script[^>]*>[\\s\\S]*?</script>", "");
         int originalLength = html.replaceAll("<[^>]+>", "").length();
         int withoutScriptsLength = withoutScripts.replaceAll("<[^>]+>", "").length();
-        
+
         if (originalLength == 0) {
             return 0;
         }
-        
+
         return 1.0 - ((double) withoutScriptsLength / originalLength);
     }
 
@@ -186,7 +298,7 @@ public class FetchUrlTool {
         // 检测是否主要是特殊字符或编码数据
         int specialCharCount = 0;
         int totalChars = Math.min(text.length(), 500);
-        
+
         for (int i = 0; i < totalChars; i++) {
             char c = text.charAt(i);
             if (!Character.isLetterOrDigit(c) && !Character.isWhitespace(c) &&
