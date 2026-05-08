@@ -29,7 +29,13 @@
       "Bash(taskkill /F /PID 30872)",
       "Bash(tskill 30872)",
       "Bash(tskill 20012)",
-      "Bash(findstr LISTENING)"
+      "Bash(findstr LISTENING)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(gh run *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
