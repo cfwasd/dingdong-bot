@@ -322,6 +322,9 @@ public class NapCatAutoConfiguration {
         // 注册 schedules + memories 表
         mm.register(1, "create schedules table", ScheduleStore.ddl());
         mm.register(2, "create memories table", SqliteMemoryStore.ddl());
+        // 为已有任务设置默认 created_by（如果为空）
+        mm.register(3, "set default created_by for existing schedules", 
+                "UPDATE schedules SET created_by = 0 WHERE created_by IS NULL");
         mm.migrate();
         return mm;
     }

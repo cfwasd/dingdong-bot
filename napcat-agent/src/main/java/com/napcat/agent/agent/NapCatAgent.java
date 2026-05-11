@@ -229,7 +229,7 @@ public class NapCatAgent {
 
                         for (LlmResponse.ToolCall tc : response.getToolCalls()) {
                             log.debug("[Agent] Tool call: {}({})", tc.getName(), tc.getArguments());
-                            Object result = toolRegistry.invoke(tc.getName(), tc.getArguments());
+                            Object result = toolRegistry.invoke(tc.getName(), tc.getArguments(), session.getKey());
                             String resultStr = result == null ? "null" : result.toString();
                             session.addMessage(new ChatMessage("tool", resultStr, tc.getName(), tc.getId()));
                             log.debug("[Agent] Tool result: {} -> {}", tc.getName(), resultStr);

@@ -36,8 +36,11 @@ public class MigrationManager {
      * 执行所有未应用的迁移。
      */
     public void migrate() {
-        Connection conn = dbManager.getConnection();
+        Connection conn = null;
         try {
+            conn = dbManager.getConnectionForWrite();
+            conn.setAutoCommit(false);  // 开启事务
+            
             ensureSchemaVersionTable(conn);
             int currentVersion = getCurrentVersion(conn);
 
@@ -54,10 +57,31 @@ public class MigrationManager {
                     }
                     updateVersion(conn, m.version);
                     log.info("Migration {} completed", m.version);
+                    currentVersion = m.version;
                 }
             }
+            
+            conn.commit();  // 提交事务
+            log.info("All migrations completed successfully");
+            
         } catch (SQLException e) {
+            if (conn != null) {
+                try {
+                    conn.rollback();  // 回滚事务
+                    log.error("Migration failed, rolled back", e);
+                } catch (SQLException ex) {
+                    log.error("Failed to rollback migration", ex);
+                }
+            }
             throw new RuntimeException("Migration failed", e);
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.close();
+                } catch (SQLException e) {
+                    log.error("Failed to close connection", e);
+                }
+            }
         }
     }
 

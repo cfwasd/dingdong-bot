@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
  * 从 SchedulePoller 的回调中触发，根据 schedule 的 action 字段选择执行路径：
  * - send_message：直接用 NapCatApi 发送固定文本（0 token）
  * - ai_generate：调用 NapCatAgent 生成动态内容后发送
+ * 
+ * 群聊场景下会自动 @ 任务创建者。
  */
 @Slf4j
 public class TaskExecutor {
@@ -48,17 +50,37 @@ public class TaskExecutor {
     private void executeSendMessage(ScheduleEntry entry) {
         String text = entry.getReplyText();
         if (text == null || text.isBlank()) {
-            log.warn("Schedule {} has no replyText", entry.getId());
-            return;
+            log.warn("Schedule {} has no replyText, using task name as message", entry.getId());
+            // 如果没有回复文本，使用任务名称作为默认消息
+            text = "⏰ 定时任务提醒：" + entry.getName();
         }
 
-        MessageChain msg = MessageChain.ofText(text);
+        // 构建消息链
+        MessageChain msg;
+        boolean isGroup = "group".equals(entry.getTargetType());
+        Long createdBy = entry.getCreatedBy();
+        
+        if (isGroup && createdBy != null && createdBy > 0) {
+            // 群聊场景：艾特创建者
+            msg = new MessageChain()
+                    .at(createdBy)
+                    .text(" " + text);
+            log.info("Sent scheduled message with mention: id={}, target={}/{}, creator={}, text={}", 
+                    entry.getId(), entry.getTargetType(), entry.getTargetId(), createdBy,
+                    text.length() > 50 ? text.substring(0, 50) + "..." : text);
+        } else {
+            // 私聊或非群聊场景：直接发送文本
+            msg = MessageChain.ofText(text);
+            log.info("Sent scheduled message: id={}, target={}/{}, text={}", 
+                    entry.getId(), entry.getTargetType(), entry.getTargetId(), 
+                    text.length() > 50 ? text.substring(0, 50) + "..." : text);
+        }
+        
         if ("private".equals(entry.getTargetType())) {
             api.sendPrivateMessage(entry.getTargetId(), msg);
         } else {
             api.sendGroupMessage(entry.getTargetId(), msg);
         }
-        log.info("Sent scheduled message: id={}, target={}/{}", entry.getId(), entry.getTargetType(), entry.getTargetId());
     }
 
     private void executeAiGenerate(ScheduleEntry entry) {
@@ -77,17 +99,55 @@ public class TaskExecutor {
         }
 
         // 支持 {time} 占位符替换
-        prompt = prompt.replace("{time}", java.time.LocalDateTime.now()
-                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        String currentTime = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        prompt = prompt.replace("{time}", currentTime);
+
+        // 构建针对定时任务的系统提示词
+        String scheduleSystemPrompt = String.format(
+            "你是一个定时任务助手。当前时间是 %s。\n" +
+            "请根据用户的提醒内容，生成一段友好、自然的消息。\n" +
+            "要求：\n" +
+            "1. 语气亲切自然，像朋友间的提醒\n" +
+            "2. 可以适当添加表情符号增加亲和力\n" +
+            "3. 简洁明了，不要过长（50-100字为宜）\n" +
+            "4. 如果是群聊消息，不需要特别称呼\n" +
+            "5. 直接返回消息内容，不要添加解释",
+            currentTime
+        );
 
         long targetId = entry.getTargetId();
         boolean isPrivate = "private".equals(entry.getTargetType());
 
         String finalPrompt = prompt;
-        agent.chat(isPrivate ? targetId : 0, isPrivate ? 0 : targetId, finalPrompt)
+        String finalSystemPrompt = scheduleSystemPrompt;
+        
+        // 使用自定义配置调用 Agent
+        com.napcat.agent.agent.AgentConfig config = com.napcat.agent.agent.AgentConfig.builder()
+                .systemPrompt(finalSystemPrompt)
+                .maxRounds(1)  // 只需要一轮对话
+                .build();
+        
+        agent.chat(isPrivate ? targetId : 0, isPrivate ? 0 : targetId, finalPrompt, config, null)
                 .thenAccept(reply -> {
                     if (reply != null && !reply.isBlank()) {
-                        MessageChain msg = MessageChain.ofText(reply);
+                        // 构建消息链
+                        com.napcat.core.message.MessageChain msg;
+                        Long createdBy = entry.getCreatedBy();
+                        
+                        if (!isPrivate && createdBy != null && createdBy > 0) {
+                            // 群聊场景：艾特创建者
+                            msg = new com.napcat.core.message.MessageChain()
+                                    .at(createdBy)
+                                    .text(" " + reply);
+                            log.info("Sent AI generated message with mention: id={}, target={}, creator={}", 
+                                    entry.getId(), targetId, createdBy);
+                        } else {
+                            // 私聊场景：直接发送
+                            msg = com.napcat.core.message.MessageChain.ofText(reply);
+                            log.info("Sent AI generated message: id={}, target={}", entry.getId(), targetId);
+                        }
+                        
                         if (isPrivate) {
                             api.sendPrivateMessage(targetId, msg);
                         } else {

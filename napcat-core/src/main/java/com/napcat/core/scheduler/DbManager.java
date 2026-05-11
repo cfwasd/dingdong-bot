@@ -8,15 +8,18 @@ import java.sql.SQLException;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * SQLite 单连接管理器。
- * 数据库文件路径可由构造函数传入，默认 napcat_data/schedules.db。
+ * SQLite 连接管理器。
+ * 数据库文件路径可由构造函数传入，默认 napcat_data/napcat.db。
+ * 
+ * 注意：SQLite 支持多线程访问，但写操作需要串行化。
+ * 本实现采用"每次获取新连接"的策略，配合 busy_timeout 实现并发控制。
+ * 使用 DELETE 模式避免 WAL 模式的锁文件问题。
  */
 @Slf4j
 public class DbManager {
 
     private final String dbPath;
-    private Connection connection;
-    private final ReentrantLock lock = new ReentrantLock();
+    private final ReentrantLock writeLock = new ReentrantLock();
     private volatile boolean initialized = false;
 
     public DbManager() {
@@ -28,7 +31,7 @@ public class DbManager {
     }
 
     /**
-     * 初始化：创建目录、建立连接、开启 WAL 模式。
+     * 初始化：创建目录、验证环境。
      */
     public void init() {
         if (initialized) {
@@ -36,7 +39,7 @@ public class DbManager {
             return;
         }
         
-        lock.lock();
+        writeLock.lock();
         try {
             if (initialized) {
                 return;
@@ -46,7 +49,7 @@ public class DbManager {
             initialized = true;
             
         } finally {
-            lock.unlock();
+            writeLock.unlock();
         }
     }
     
@@ -76,38 +79,20 @@ public class DbManager {
                 if (dbFile.exists()) {
                     log.info("Database file exists: size={} bytes, canRead={}, canWrite={}", 
                             dbFile.length(), dbFile.canRead(), dbFile.canWrite());
-                    
-                    // 检查是否有锁文件
-                    java.io.File walFile = new java.io.File(dbPath + "-wal");
-                    java.io.File shmFile = new java.io.File(dbPath + "-shm");
-                    if (walFile.exists() || shmFile.exists()) {
-                        log.warn("WAL lock files detected: wal={}, shm={}", 
-                                walFile.exists(), shmFile.exists());
-                    }
                 } else {
                     log.info("Database file does not exist, will create new one");
                 }
 
-                String jdbcUrl = "jdbc:sqlite:" + dbPath;
+                String jdbcUrl = buildJdbcUrl();
                 
-                // 添加连接参数，增强兼容性
-                jdbcUrl += "?journal_mode=WAL&busy_timeout=10000&foreign_keys=ON";
-                
-                connection = DriverManager.getConnection(jdbcUrl);
-                
-                connection.setAutoCommit(true);
-                
-                // 再次确认设置
-                try {
-                    connection.createStatement().execute("PRAGMA journal_mode=WAL");
-                    connection.createStatement().execute("PRAGMA busy_timeout=10000");
-                    connection.createStatement().execute("PRAGMA foreign_keys=ON");
-                    log.debug("SQLite PRAGMA settings applied successfully");
-                } catch (SQLException e) {
-                    log.warn("Failed to apply some PRAGMA settings, continuing anyway: {}", e.getMessage());
+                // 测试连接是否正常（不执行额外的 PRAGMA）
+                try (Connection testConn = DriverManager.getConnection(jdbcUrl)) {
+                    // 验证连接是否可用
+                    testConn.isValid(2);
+                    log.debug("SQLite connection test successful");
                 }
                 
-                log.info("SQLite database opened successfully: {} (WAL mode enabled)", dbPath);
+                log.info("SQLite database opened successfully: {} (DELETE mode enabled)", dbPath);
                 return;
                 
             } catch (SQLException e) {
@@ -119,11 +104,13 @@ public class DbManager {
                     log.warn("Database is locked. Waiting {}ms before retry... Attempt {}/{}", 
                             waitTime, attempt, maxRetries);
                     
-                    closeConnectionSilently();
-                    
-                    // 尝试清理锁文件
+                    // 最后一次重试前清理可能的锁文件
                     if (attempt == maxRetries) {
+                        log.error("Final attempt: cleaning up lock files and forcing connection");
                         tryCleanupLockFiles();
+                        
+                        // Windows 特殊处理：删除并重建空文件
+                        forceRecreateDatabaseFile();
                     }
                     
                     try {
@@ -139,13 +126,65 @@ public class DbManager {
             }
         }
         
-        log.error("Failed to open database after {} retries. Please check:");
-        log.error("1. No other process is using the database");
+        log.error("Failed to open database after {} retries.", maxRetries);
+        log.error("Please check:");
+        log.error("1. No other process is using the database (check Task Manager for java.exe)");
         log.error("2. Antivirus software is not blocking access");
         log.error("3. File permissions are correct");
-        throw new RuntimeException("Failed to open SQLite database after " + maxRetries + " retries. The database file may be locked by another process.");
+        log.error("4. Try manually deleting the database file: {}", dbPath);
+        throw new RuntimeException("Failed to open SQLite database after " + maxRetries + 
+                " retries. The database file is locked or corrupted.");
     }
     
+    /**
+     * 强制重建数据库文件（Windows 特殊处理）
+     */
+    private void forceRecreateDatabaseFile() {
+        java.io.File dbFile = new java.io.File(dbPath);
+        java.io.File walFile = new java.io.File(dbPath + "-wal");
+        java.io.File shmFile = new java.io.File(dbPath + "-shm");
+        java.io.File journalFile = new java.io.File(dbPath + "-journal");
+        
+        // 删除所有相关文件
+        deleteFileIfExists(walFile);
+        deleteFileIfExists(shmFile);
+        deleteFileIfExists(journalFile);
+        
+        // 如果主文件存在且大小为 0，删除后重建
+        if (dbFile.exists() && dbFile.length() == 0) {
+            if (dbFile.delete()) {
+                log.info("Deleted empty database file: {}", dbFile.getAbsolutePath());
+                try {
+                    if (dbFile.createNewFile()) {
+                        log.info("Created fresh database file: {}", dbFile.getAbsolutePath());
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to recreate database file: {}", e.getMessage());
+                }
+            }
+        }
+    }
+    
+    private void deleteFileIfExists(java.io.File file) {
+        if (file.exists()) {
+            if (file.delete()) {
+                log.info("Deleted lock file: {}", file.getAbsolutePath());
+            } else {
+                log.warn("Failed to delete lock file: {}", file.getAbsolutePath());
+            }
+        }
+    }
+    
+    /**
+     * 构建 JDBC URL（使用 DELETE 模式）
+     */
+    private String buildJdbcUrl() {
+        // 使用完整的绝对路径，避免相对路径问题
+        java.io.File dbFile = new java.io.File(dbPath);
+        String absolutePath = dbFile.getAbsolutePath();
+        return "jdbc:sqlite:" + absolutePath + "?journal_mode=DELETE&busy_timeout=30000&foreign_keys=ON&synchronous=NORMAL";
+    }
+
     /**
      * 尝试清理锁文件
      */
@@ -170,54 +209,60 @@ public class DbManager {
         }
     }
     
-    private void closeConnectionSilently() {
-        if (connection != null) {
+    /**
+     * 静默关闭连接（用于异常处理时清理资源）
+     */
+    private void closeConnectionSilently(Connection conn) {
+        if (conn != null) {
             try {
-                connection.close();
+                if (!conn.isClosed()) {
+                    conn.close();
+                }
             } catch (SQLException e) {
-                // Ignore
+                log.debug("Failed to close connection silently: {}", e.getMessage());
             }
         }
     }
 
     /**
      * 获取数据库连接（线程安全）。
+     * 每次调用返回新的连接，调用者负责关闭。
+     * 
+     * @return 新的 Connection 对象，使用后必须关闭
      */
     public Connection getConnection() {
         if (!initialized) {
             init();
         }
         
-        lock.lock();
         try {
-            if (connection == null || connection.isClosed()) {
-                lock.unlock();
-                init();
-                lock.lock();
-            }
-            return connection;
-        } catch (Exception e) {
+            return DriverManager.getConnection(buildJdbcUrl());
+        } catch (SQLException e) {
             throw new RuntimeException("Failed to get SQLite connection", e);
-        } finally {
-            lock.unlock();
         }
     }
 
     /**
-     * 关闭连接。
+     * 获取写锁保护的连接。
+     * 用于需要独占写操作的场景（如迁移、建表）。
+     * 
+     * @return 新的 Connection 对象，使用后必须关闭
      */
-    public void close() {
-        lock.lock();
+    public Connection getConnectionForWrite() {
+        writeLock.lock();
         try {
-            if (connection != null && !connection.isClosed()) {
-                connection.close();
-                log.info("SQLite database closed: {}", dbPath);
-            }
-        } catch (SQLException e) {
-            log.error("Failed to close SQLite connection", e);
+            return getConnection();
         } finally {
-            lock.unlock();
+            writeLock.unlock();
         }
+    }
+
+    /**
+     * 关闭数据库管理器（已废弃，因为不再维护单例连接）。
+     */
+    @Deprecated
+    public void close() {
+        log.info("SQLite database manager closed: {}", dbPath);
     }
 
     public String getDbPath() {

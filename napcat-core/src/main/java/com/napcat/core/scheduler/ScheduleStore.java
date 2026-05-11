@@ -49,7 +49,8 @@ public class ScheduleStore {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         String sql = "INSERT INTO schedules (id, name, cron, action, target_type, target_id, reply_text, prompt, enabled, created_by) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        try (PreparedStatement ps = dbManager.getConnection().prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, id);
             ps.setString(2, entry.getName());
             ps.setString(3, entry.getCron());
@@ -83,9 +84,15 @@ public class ScheduleStore {
         return insert(entry);
     }
 
-    private String findIdByName(String name) {
+    /**
+     * 根据任务名称查找任务 ID。
+     * @param name 任务名称
+     * @return 任务 ID，如果不存在则返回 null
+     */
+    public String findIdByName(String name) {
         String sql = "SELECT id FROM schedules WHERE name = ? LIMIT 1";
-        try (PreparedStatement ps = dbManager.getConnection().prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, name);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getString("id");
@@ -109,7 +116,8 @@ public class ScheduleStore {
      */
     public ScheduleEntry getById(String id) {
         String sql = "SELECT * FROM schedules WHERE id = ?";
-        try (PreparedStatement ps = dbManager.getConnection().prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return mapRow(rs);
@@ -125,7 +133,8 @@ public class ScheduleStore {
      */
     public boolean delete(String id) {
         String sql = "DELETE FROM schedules WHERE id = ?";
-        try (PreparedStatement ps = dbManager.getConnection().prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, id);
             int rows = ps.executeUpdate();
             if (rows > 0) log.info("Schedule deleted: {}", id);
@@ -141,7 +150,8 @@ public class ScheduleStore {
      */
     public boolean toggle(String id, boolean enabled) {
         String sql = "UPDATE schedules SET enabled = ?, updated_at = datetime('now') WHERE id = ?";
-        try (PreparedStatement ps = dbManager.getConnection().prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, enabled ? 1 : 0);
             ps.setString(2, id);
             int rows = ps.executeUpdate();
@@ -173,7 +183,8 @@ public class ScheduleStore {
 
     private List<ScheduleEntry> query(String sql) {
         List<ScheduleEntry> list = new ArrayList<>();
-        try (Statement stmt = dbManager.getConnection().createStatement();
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
                 list.add(mapRow(rs));

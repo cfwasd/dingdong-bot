@@ -51,7 +51,8 @@ public class SqliteMemoryStore implements MemoryStore {
         }
 
         List<String> results = new ArrayList<>();
-        try (PreparedStatement ps = dbManager.getConnection().prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, key.userId());
             ps.setLong(2, key.groupId());
             if (query != null && !query.isBlank()) {
@@ -75,7 +76,8 @@ public class SqliteMemoryStore implements MemoryStore {
     public void persist(SessionKey key, String content, String type) {
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         String sql = "INSERT INTO memories (id, user_id, group_id, content, type) VALUES (?, ?, ?, ?, ?)";
-        try (PreparedStatement ps = dbManager.getConnection().prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, id);
             ps.setLong(2, key.userId());
             ps.setLong(3, key.groupId());
@@ -91,7 +93,8 @@ public class SqliteMemoryStore implements MemoryStore {
     @Override
     public void clear(SessionKey key) {
         String sql = "DELETE FROM memories WHERE user_id = ? AND group_id = ?";
-        try (PreparedStatement ps = dbManager.getConnection().prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, key.userId());
             ps.setLong(2, key.groupId());
             int rows = ps.executeUpdate();

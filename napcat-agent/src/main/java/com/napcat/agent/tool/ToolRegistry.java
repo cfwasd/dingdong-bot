@@ -2,6 +2,7 @@ package com.napcat.agent.tool;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.napcat.agent.session.SessionKey;
 import com.napcat.core.annotation.Tool;
 import com.napcat.core.annotation.ToolParam;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ public class ToolRegistry {
 
     private final Map<String, ToolMethod> tools = new ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper();
+    private static final ThreadLocal<SessionKey> currentSessionKey = new ThreadLocal<>();
 
     public void register(Object bean) {
         Class<?> clazz = bean.getClass();
@@ -38,11 +40,32 @@ public class ToolRegistry {
         return schemas;
     }
 
+    /**
+     * 调用工具（兼容旧接口，但不提供 SessionKey）
+     * @deprecated 使用 {@link #invoke(String, String, SessionKey)}
+     */
+    @Deprecated
     public Object invoke(String name, String argumentsJson) {
+        return invoke(name, argumentsJson, null);
+    }
+
+    /**
+     * 调用工具（推荐方式，传入 SessionKey）
+     * @param name 工具名称
+     * @param argumentsJson 参数 JSON
+     * @param sessionKey 会话键（可为 null，但某些工具可能依赖此信息）
+     */
+    public Object invoke(String name, String argumentsJson, SessionKey sessionKey) {
         ToolMethod tm = tools.get(name);
         if (tm == null) {
             throw new IllegalArgumentException("Tool not found: " + name);
         }
+        
+        // 设置当前会话上下文
+        if (sessionKey != null) {
+            currentSessionKey.set(sessionKey);
+        }
+        
         try {
             // 验证并清理 JSON 字符串
             if (argumentsJson == null || argumentsJson.trim().isEmpty()) {
@@ -108,7 +131,19 @@ public class ToolRegistry {
         } catch (Exception e) {
             log.error("Tool invocation error: {}", name, e);
             return "Error: " + e.getMessage();
+        } finally {
+            // 清理 ThreadLocal，避免内存泄漏
+            if (sessionKey != null) {
+                currentSessionKey.remove();
+            }
         }
+    }
+    
+    /**
+     * 获取当前会话的 SessionKey（供工具内部使用）
+     */
+    public static SessionKey getCurrentSessionKey() {
+        return currentSessionKey.get();
     }
 
     /**
