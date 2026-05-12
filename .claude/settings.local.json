@@ -36,7 +36,10 @@
       "Bash(gh run *)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Administrator\\\\Desktop\\\\napcat-java\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(./mvnw compile *)"
     ]
   }
 }

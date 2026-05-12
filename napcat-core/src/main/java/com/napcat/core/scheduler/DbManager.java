@@ -75,44 +75,32 @@ public class DbManager {
                     throw new RuntimeException("Database directory is not writable: " + parentDir.getAbsolutePath());
                 }
 
-                // 诊断信息：检查文件状态
                 if (dbFile.exists()) {
-                    log.info("Database file exists: size={} bytes, canRead={}, canWrite={}", 
-                            dbFile.length(), dbFile.canRead(), dbFile.canWrite());
+                    log.debug("Database file exists: size={} bytes", dbFile.length());
                 } else {
-                    log.info("Database file does not exist, will create new one");
+                    log.debug("Database file does not exist, will create new one");
                 }
 
                 String jdbcUrl = buildJdbcUrl();
                 
-                // 测试连接是否正常（不执行额外的 PRAGMA）
                 try (Connection testConn = DriverManager.getConnection(jdbcUrl)) {
-                    // 验证连接是否可用
                     testConn.isValid(2);
-                    log.debug("SQLite connection test successful");
                 }
-                
-                log.info("SQLite database opened successfully: {} (DELETE mode enabled)", dbPath);
+
+                log.info("SQLite database ready: {}", dbPath);
                 return;
                 
             } catch (SQLException e) {
                 String errorMsg = e.getMessage();
-                log.error("SQL error on attempt {}: {}", attempt, errorMsg);
-                
+
                 if (errorMsg != null && (errorMsg.contains("SQLITE_BUSY") || errorMsg.contains("locked"))) {
                     long waitTime = baseWaitMs * attempt;
-                    log.warn("Database is locked. Waiting {}ms before retry... Attempt {}/{}", 
-                            waitTime, attempt, maxRetries);
-                    
-                    // 最后一次重试前清理可能的锁文件
                     if (attempt == maxRetries) {
-                        log.error("Final attempt: cleaning up lock files and forcing connection");
+                        log.warn("Database locked, cleaning up and retrying");
                         tryCleanupLockFiles();
-                        
-                        // Windows 特殊处理：删除并重建空文件
                         forceRecreateDatabaseFile();
                     }
-                    
+
                     try {
                         Thread.sleep(waitTime);
                     } catch (InterruptedException ie) {
@@ -125,14 +113,8 @@ public class DbManager {
                 }
             }
         }
-        
-        log.error("Failed to open database after {} retries.", maxRetries);
-        log.error("Please check:");
-        log.error("1. No other process is using the database (check Task Manager for java.exe)");
-        log.error("2. Antivirus software is not blocking access");
-        log.error("3. File permissions are correct");
-        log.error("4. Try manually deleting the database file: {}", dbPath);
-        throw new RuntimeException("Failed to open SQLite database after " + maxRetries + 
+
+        throw new RuntimeException("Failed to open SQLite database after " + maxRetries +
                 " retries. The database file is locked or corrupted.");
     }
     

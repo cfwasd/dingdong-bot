@@ -24,32 +24,38 @@ public class NapCatAgent {
     private final ToolRegistry toolRegistry;
     private final SessionManager sessionManager;
     private final MemoryStore memoryStore;
-    private final MemoryExtractor memoryExtractor;
+    private final java.util.function.Supplier<MemoryExtractor> memoryExtractorSupplier;
     private final String defaultSystemPrompt;
     private final int defaultMaxRounds;
     private final boolean enableVision;
 
     public NapCatAgent(LlmProvider llmProvider, ToolRegistry toolRegistry, SessionManager sessionManager,
                        String defaultSystemPrompt, int defaultMaxRounds) {
-        this(llmProvider, toolRegistry, sessionManager, null, null, defaultSystemPrompt, defaultMaxRounds, true);
+        this(llmProvider, toolRegistry, sessionManager, null,
+                (java.util.function.Supplier<MemoryExtractor>) null, defaultSystemPrompt, defaultMaxRounds, true);
     }
 
     public NapCatAgent(LlmProvider llmProvider, ToolRegistry toolRegistry, SessionManager sessionManager,
                        String defaultSystemPrompt, int defaultMaxRounds, boolean enableVision) {
-        this(llmProvider, toolRegistry, sessionManager, null, null, defaultSystemPrompt, defaultMaxRounds, enableVision);
+        this(llmProvider, toolRegistry, sessionManager, null,
+                (java.util.function.Supplier<MemoryExtractor>) null, defaultSystemPrompt, defaultMaxRounds, enableVision);
     }
 
     public NapCatAgent(LlmProvider llmProvider, ToolRegistry toolRegistry, SessionManager sessionManager,
-                       MemoryStore memoryStore, MemoryExtractor memoryExtractor,
+                       MemoryStore memoryStore, java.util.function.Supplier<MemoryExtractor> memoryExtractorSupplier,
                        String defaultSystemPrompt, int defaultMaxRounds, boolean enableVision) {
         this.llmProvider = llmProvider;
         this.toolRegistry = toolRegistry;
         this.sessionManager = sessionManager;
         this.memoryStore = memoryStore;
-        this.memoryExtractor = memoryExtractor;
+        this.memoryExtractorSupplier = memoryExtractorSupplier;
         this.defaultSystemPrompt = defaultSystemPrompt;
         this.defaultMaxRounds = defaultMaxRounds;
         this.enableVision = enableVision;
+    }
+
+    private MemoryExtractor getMemoryExtractor() {
+        return memoryExtractorSupplier != null ? memoryExtractorSupplier.get() : null;
     }
 
     // ========= 便捷方法：仅 userId（私聊场景，保持向后兼容） =========
@@ -263,8 +269,9 @@ public class NapCatAgent {
                         session.addMessage(assistantMsg);
 
                         // 触发记忆提取（异步，不阻塞响应）
-                        if (config.isMemoryEnabled() && memoryExtractor != null) {
-                            memoryExtractor.extractIfNeeded(session.getKey(), session);
+                        MemoryExtractor extractor = getMemoryExtractor();
+                        if (config.isMemoryEnabled() && extractor != null) {
+                            extractor.extractIfNeeded(session.getKey(), session);
                         }
 
                         return CompletableFuture.completedFuture(content);

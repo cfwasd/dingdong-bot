@@ -12,6 +12,7 @@ import com.napcat.core.annotation.OnPrivateMessage;
 import com.napcat.core.annotation.WakeFilter;
 import com.napcat.core.config.BotProperties;
 import com.napcat.core.event.GroupMessageEvent;
+import com.napcat.core.event.PrivateMessageEvent;
 import com.napcat.core.message.MessageChain;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,9 @@ public class AgentDemoBot {
 
     @Autowired(required = false)
     private MemoryExtractor memoryExtractor;
+
+    @Autowired(required = false)
+    private com.napcat.agent.memory.MemoryStore memoryStore;
 
     @Autowired
     private BotProperties botProperties;
@@ -89,19 +93,41 @@ public class AgentDemoBot {
                 .thenAccept(event::reply);
     }
 
+    @OnPrivateMessage
+    public void notAt(PrivateMessageEvent event) {
+        if (agent == null) return;
+
+        String prompt = event.getMessage().toAgentPrompt();
+
+        // 剔除唤醒关键词
+        String cleanedText = removeWakeWords(prompt, keyboards);
+        if (tryClearSession(event, cleanedText)) return;
+
+        AgentConfig config = AgentConfig.builder()
+                .showToolProcess(true)
+                .ackCallback(() -> event.reply(MessageChain.ofFace(277)))  // 👍 表示收到
+                .build();
+
+        agent.chat(event.getUserId(), 0, cleanedText, config,
+                        event::reply)
+                .thenAccept(event::reply);
+    }
+
     /**
      * 检测是否为会话清空命令（/new 或 /clear），如果是则提取记忆后清空并返回 true。
      */
     private boolean tryClearSession(GroupMessageEvent event, String text) {
         if (sessionManager == null) return false;
         String trimmed = text.trim();
-        if ("/new".equals(trimmed) || "/clear".equals(trimmed)) {
+        if ( "/clear".equals(trimmed)) {
             SessionKey key = new SessionKey(event.getUserId(), event.getGroupId());
-            // 清除前提取记忆
-            if (memoryExtractor != null) {
-                Session session = sessionManager.get(key);
-                if (session != null && !session.getHistory().isEmpty()) {
+            Session session = sessionManager.get(key);
+            if (session != null && !session.getHistory().isEmpty()) {
+                if (memoryExtractor != null) {
                     memoryExtractor.extractAndPersistSync(key, session);
+                }
+                if (memoryStore != null) {
+                    memoryStore.persistFullSession(key, formatSessionHistory(session));
                 }
             }
             sessionManager.getAndRemove(key);
@@ -109,6 +135,38 @@ public class AgentDemoBot {
             return true;
         }
         return false;
+    }
+
+    private boolean tryClearSession(PrivateMessageEvent event, String text) {
+        if (sessionManager == null) return false;
+        String trimmed = text.trim();
+        if ( "/clear".equals(trimmed)) {
+            SessionKey key = new SessionKey(event.getUserId(), 0);
+            Session session = sessionManager.get(key);
+            if (session != null && !session.getHistory().isEmpty()) {
+                if (memoryExtractor != null) {
+                    memoryExtractor.extractAndPersistSync(key, session);
+                }
+                if (memoryStore != null) {
+                    memoryStore.persistFullSession(key, formatSessionHistory(session));
+                }
+            }
+            sessionManager.getAndRemove(key);
+            event.reply("会话已重置");
+            return true;
+        }
+        return false;
+    }
+
+    private String formatSessionHistory(Session session) {
+        StringBuilder sb = new StringBuilder();
+        for (var msg : session.getHistory()) {
+            if ("user".equals(msg.getRole()) || "assistant".equals(msg.getRole())) {
+                sb.append("[").append(msg.getRole()).append("]: ")
+                        .append(msg.getContent() != null ? msg.getContent() : "").append("\n");
+            }
+        }
+        return sb.toString().trim();
     }
 
     /**

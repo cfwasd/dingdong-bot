@@ -114,7 +114,13 @@ public class NapCatLifecycle implements SmartLifecycle {
                 sessionCleanupExecutor.scheduleWithFixedDelay(
                         sessionManager::clearExpired,
                         30, 30, TimeUnit.MINUTES);
-                log.info("Session cleanup scheduler started");
+            }
+
+            // 注入测试记忆数据（仅当 napcat.memory.test-data-enabled=true 时）
+            com.napcat.agent.memory.MemoryTestDataInjector testInjector =
+                    ctx.getBeanProvider(com.napcat.agent.memory.MemoryTestDataInjector.class).getIfAvailable();
+            if (testInjector != null) {
+                testInjector.injectTestData();
             }
         } catch (Exception e) {
             log.warn("Failed to start scheduler: {}", e.getMessage());
@@ -139,17 +145,12 @@ public class NapCatLifecycle implements SmartLifecycle {
                                 .thenAccept(reply -> ge.reply(reply));
                     }
                 });
-                log.info("at-me-trigger fallback registered (agent enabled)");
-            } else {
-                log.debug("at-me-trigger is enabled but no Agent bean available");
             }
         }
 
-        // 所有适配器共享同一个 MessageRouter
         for (BotAdapter adapter : adapters) {
             adapter.setMessageHandler(messageRouter);
             adapter.start();
-            log.info("NapCat adapter started: {}", adapter.getId());
         }
         running = true;
     }
@@ -169,6 +170,9 @@ public class NapCatLifecycle implements SmartLifecycle {
 
     @Override
     public void stop() {
+        // 关闭前先将所有内存会话全量持久化
+        persistAllSessionsBeforeShutdown();
+
         try {
             SchedulePoller poller = ctx.getBeanProvider(SchedulePoller.class).getIfAvailable();
             if (poller != null) {
@@ -200,7 +204,42 @@ public class NapCatLifecycle implements SmartLifecycle {
             adapter.stop();
         }
         running = false;
-        log.info("NapCat adapters stopped");
+        log.info("NapCat stopped");
+    }
+
+    private void persistAllSessionsBeforeShutdown() {
+        try {
+            com.napcat.agent.session.SessionManager sessionManager =
+                    ctx.getBeanProvider(com.napcat.agent.session.SessionManager.class).getIfAvailable();
+            com.napcat.agent.memory.MemoryStore memoryStore =
+                    ctx.getBeanProvider(com.napcat.agent.memory.MemoryStore.class).getIfAvailable();
+            if (sessionManager == null || memoryStore == null) return;
+
+            int persisted = 0;
+            for (com.napcat.agent.session.SessionKey key : sessionManager.getAllKeys()) {
+                com.napcat.agent.session.Session session = sessionManager.getIfPresent(key);
+                if (session != null && !session.getHistory().isEmpty()) {
+                    memoryStore.persistFullSession(key, formatSessionHistory(session));
+                    persisted++;
+                }
+            }
+            if (persisted > 0) {
+                log.info("Persisted {} sessions before shutdown", persisted);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to persist sessions before shutdown: {}", e.getMessage());
+        }
+    }
+
+    private String formatSessionHistory(com.napcat.agent.session.Session session) {
+        StringBuilder sb = new StringBuilder();
+        for (var msg : session.getHistory()) {
+            if ("user".equals(msg.getRole()) || "assistant".equals(msg.getRole())) {
+                sb.append("[").append(msg.getRole()).append("]: ")
+                        .append(msg.getContent() != null ? msg.getContent() : "").append("\n");
+            }
+        }
+        return sb.toString().trim();
     }
 
     @Override

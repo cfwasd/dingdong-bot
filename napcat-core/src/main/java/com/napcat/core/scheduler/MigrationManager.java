@@ -3,10 +3,13 @@ package com.napcat.core.scheduler;
 import lombok.extern.slf4j.Slf4j;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 版本化的 Schema 迁移管理器。
@@ -105,6 +108,30 @@ public class MigrationManager {
     private void updateVersion(Connection conn, int version) throws SQLException {
         try (Statement stmt = conn.createStatement()) {
             stmt.execute("INSERT INTO schema_version (version) VALUES (" + version + ")");
+        }
+    }
+
+    /**
+     * 校验并确保表中存在指定列。若缺失则通过 ALTER TABLE ADD COLUMN 补充。
+     * 用于已有数据库的表结构向前兼容（列级）。
+     */
+    public void ensureColumn(String tableName, String columnName, String columnDef) {
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("PRAGMA table_info(" + tableName + ")")) {
+            Set<String> existingColumns = new HashSet<>();
+            while (rs.next()) {
+                existingColumns.add(rs.getString("name"));
+            }
+            if (!existingColumns.contains(columnName)) {
+                String sql = "ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnDef;
+                try (Statement alterStmt = conn.createStatement()) {
+                    alterStmt.execute(sql);
+                    log.info("Added missing column: {}.{} ({})", tableName, columnName, columnDef);
+                }
+            }
+        } catch (SQLException e) {
+            log.error("Failed to ensure column {}.{}: {}", tableName, columnName, e.getMessage());
         }
     }
 

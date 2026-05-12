@@ -34,6 +34,13 @@ public interface MemoryStore {
         persist(key, content, "summary");
     }
 
+    /**
+     * 全量持久化会话历史。
+     * @param key 用户会话键
+     * @param fullContent 完整会话内容文本
+     */
+    void persistFullSession(SessionKey key, String fullContent);
+
     void summarize(SessionKey key, String summaryDate, String content);
 
     List<SessionKey> listAllKeys();

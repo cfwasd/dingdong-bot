@@ -40,12 +40,19 @@ public class DailyMemorySummarizer {
     @Lazy
     private NapCatAgent agent;
 
+    @Autowired(required = false)
+    private com.napcat.agent.session.SessionManager sessionManager;
+
     /**
      * 执行每日归纳。由定时任务回调。
-     * 遍历所有有记忆的用户，将当天记忆归纳为摘要。
+     * 每天每个用户只归纳一次；归纳时携带最近历史摘要，保证内容随时间累积。
      */
     public void runDailySummary() {
         log.info("DailyMemorySummarizer started");
+
+        // 第一步：将内存中所有活跃会话全量入库
+        persistInMemorySessions();
+
         List<SessionKey> keys = memoryStore.listAllKeys();
         if (keys.isEmpty()) {
             log.info("No memory keys found, skipping daily summary");
@@ -54,6 +61,7 @@ public class DailyMemorySummarizer {
 
         String today = LocalDate.now().format(DATE_FMT);
         AtomicInteger summarized = new AtomicInteger(0);
+        AtomicInteger skipped = new AtomicInteger(0);
 
         ExecutorService executor = Executors.newFixedThreadPool(MAX_CONCURRENT_SUMMARY, r -> {
             Thread t = new Thread(r, "napcat-daily-summary");
@@ -66,15 +74,23 @@ public class DailyMemorySummarizer {
             for (SessionKey key : keys) {
                 futures.add(CompletableFuture.runAsync(() -> {
                     try {
+                        // 防重复：今天已归纳则跳过
+                        if (memoryStore.hasSummaryToday(key, today)) {
+                            log.debug("Summary already exists for {} on {}, skipping", key, today);
+                            skipped.incrementAndGet();
+                            return;
+                        }
+
                         String todayMemories = memoryStore.getTodayMemories(key);
                         if (todayMemories == null || todayMemories.isBlank()) {
                             return;
                         }
 
-                        // 如果有 Agent，用 LLM 归纳；否则用简单拼接
+                        // 获取最近 7 天历史摘要，与当天记忆合并归纳
+                        List<String> recentSummaries = memoryStore.getRecentSummaries(key, 7);
                         String summary;
                         if (agent != null) {
-                            summary = summarizeWithLLM(key, todayMemories);
+                            summary = summarizeWithLLM(key, recentSummaries, todayMemories);
                         } else {
                             summary = summarizeSimple(todayMemories);
                         }
@@ -106,21 +122,69 @@ public class DailyMemorySummarizer {
             }
         }
 
-        log.info("DailyMemorySummarizer completed: {} keys processed, {} summarized", keys.size(), summarized.get());
+        log.info("DailyMemorySummarizer completed: {} keys processed, {} summarized, {} skipped", keys.size(), summarized.get(), skipped.get());
+    }
+
+    /**
+     * 将内存中所有活跃会话全量持久化到 memories 表。
+     */
+    private void persistInMemorySessions() {
+        if (sessionManager == null) return;
+        int persisted = 0;
+        for (com.napcat.agent.session.SessionKey key : sessionManager.getAllKeys()) {
+            com.napcat.agent.session.Session session = sessionManager.getIfPresent(key);
+            if (session != null && !session.getHistory().isEmpty()) {
+                String content = formatSessionHistory(session);
+                if (!content.isBlank()) {
+                    memoryStore.persistFullSession(key, content);
+                    persisted++;
+                }
+            }
+        }
+        if (persisted > 0) {
+            log.info("Persisted {} in-memory sessions before summarization", persisted);
+        }
+    }
+
+    private String formatSessionHistory(com.napcat.agent.session.Session session) {
+        StringBuilder sb = new StringBuilder();
+        for (var msg : session.getHistory()) {
+            if ("user".equals(msg.getRole()) || "assistant".equals(msg.getRole())) {
+                sb.append("[").append(msg.getRole()).append("]: ")
+                        .append(msg.getContent() != null ? msg.getContent() : "").append("\n");
+            }
+        }
+        return sb.toString().trim();
     }
 
     /**
      * 使用 LLM 归纳记忆。
+     * 将最近历史摘要与当天新记忆合并，生成累积式摘要。
      */
-    private String summarizeWithLLM(SessionKey key, String rawMemories) {
+    private String summarizeWithLLM(SessionKey key, List<String> recentSummaries, String todayMemories) {
         try {
-            String prompt = "请将以下用户今日的对话记忆归纳为一段简洁的摘要（100字以内），" +
-                    "保留关键事实、偏好和重要话题：\n\n" + rawMemories;
+            StringBuilder prompt = new StringBuilder();
+            prompt.append("请基于以下信息，生成一段关于用户的累积记忆摘要（150字以内）。\n\n");
 
-            String result = agent.chat(key, prompt,
+            if (!recentSummaries.isEmpty()) {
+                prompt.append("【历史已知信息】\n");
+                for (String s : recentSummaries) {
+                    prompt.append(s).append("\n");
+                }
+                prompt.append("\n");
+            }
+
+            prompt.append("【今日新记忆】\n").append(todayMemories).append("\n\n");
+            prompt.append("要求：\n");
+            prompt.append("1. 合并历史信息和今日新记忆，去重保留；\n");
+            prompt.append("2. 如果今日没有新增关键信息，可保持历史摘要不变；\n");
+            prompt.append("3. 输出一段连贯的用户画像摘要，不要分段；\n");
+            prompt.append("4. 只返回摘要文本，不要解释。");
+
+            String result = agent.chat(key, prompt.toString(),
                     AgentConfig.builder()
                             .maxRounds(1)
-                            .systemPrompt("你是一个信息归纳助手。将碎片化记忆归纳为连贯的摘要，保留关键信息。")
+                            .systemPrompt("你是一个用户画像归纳助手。将历史摘要和当日新记忆合并为一段连贯、去重的累积摘要。")
                             .build(),
                     null)
                     .get(60, java.util.concurrent.TimeUnit.SECONDS);
@@ -128,7 +192,7 @@ public class DailyMemorySummarizer {
             return (result != null && !result.isBlank()) ? result : null;
         } catch (Exception e) {
             log.warn("LLM summarization failed for {}, falling back to simple: {}", key, e.getMessage());
-            return summarizeSimple(rawMemories);
+            return summarizeSimple(todayMemories);
         }
     }
 
@@ -136,7 +200,6 @@ public class DailyMemorySummarizer {
      * 简单拼接归纳（无 LLM 时使用）。
      */
     private String summarizeSimple(String rawMemories) {
-        // 取前 500 字符作为简单摘要
         if (rawMemories.length() > 500) {
             return rawMemories.substring(0, 500) + "…";
         }

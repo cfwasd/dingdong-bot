@@ -25,6 +25,7 @@ public class HandlerRegistry implements BotDispatcher {
     private final List<HandlerEntry<?>> handlers = new ArrayList<>();
     private final Map<String, List<CommandEntry>> commands = new ConcurrentHashMap<>();
     private final Map<Class<? extends OB11Event>, List<Consumer<OB11Event>>> eventHandlers = new ConcurrentHashMap<>();
+    private final List<CommandHelp> commandHelps = new ArrayList<>();
 
     /** 当事件未被任何 handler 处理时的兜底回调（用于 at-me-trigger 等场景） */
     private Consumer<OB11Event> fallbackHandler;
@@ -131,7 +132,8 @@ public class HandlerRegistry implements BotDispatcher {
         method.setAccessible(true);
 
         if (commandOpt.isPresent()) {
-            String template = properties.getCommandPrefix() + commandOpt.get().value();
+            Command cmd = commandOpt.get();
+            String template = properties.getCommandPrefix() + cmd.value();
             Predicate<Object> eventFilter = createEventFilter(annotations);
             Predicate<MessageEvent> msgFilter = eventFilter == null ? null :
                     e -> eventFilter.test(e);
@@ -141,6 +143,7 @@ public class HandlerRegistry implements BotDispatcher {
             CommandEntry entry = new CommandEntry(template,
                     (event, args) -> invokeMethod(bean, method, event, args), msgFilter, eventType);
             commands.computeIfAbsent(template, k -> new ArrayList<>()).add(entry);
+            commandHelps.add(new CommandHelp(template, cmd.description(), cmd.adminOnly()));
             log.debug("Registered command handler: {} on method {} type={}", template, method.getName(), eventType);
             return;
         }
@@ -179,10 +182,9 @@ public class HandlerRegistry implements BotDispatcher {
         } catch (java.lang.reflect.InvocationTargetException ite) {
             Throwable cause = ite.getCause();
             if (cause instanceof StopRoutingException) {
-                log.debug("Handler stopped routing: {}.{}", bean.getClass().getName(), method.getName());
-            } else {
-                log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), ite);
+                throw (StopRoutingException) cause;
             }
+            log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), ite);
         } catch (Exception e) {
             log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), e);
         }
@@ -204,10 +206,9 @@ public class HandlerRegistry implements BotDispatcher {
         } catch (java.lang.reflect.InvocationTargetException ite) {
             Throwable cause = ite.getCause();
             if (cause instanceof StopRoutingException) {
-                log.debug("Handler stopped routing: {}.{}", bean.getClass().getName(), method.getName());
-            } else {
-                log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), ite);
+                throw (StopRoutingException) cause;
             }
+            log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), ite);
         } catch (Exception e) {
             log.error("Method invoke error: {}.{}", bean.getClass().getName(), method.getName(), e);
         }
@@ -250,40 +251,40 @@ public class HandlerRegistry implements BotDispatcher {
         if (event instanceof MessageEvent msgEvent) {
             String plainText = msgEvent.getPlainText().trim();
             
-            // 打印收到的消息详情
-            if (msgEvent instanceof GroupMessageEvent groupEvent) {
-                String senderName = groupEvent.getSender() != null ? groupEvent.getSender().getNickname() : "未知";
-                long senderId = groupEvent.getUserId();
-                long groupId = groupEvent.getGroupId();
-                log.info("群聊 [{}] [{}({})] {}", groupId, senderName, senderId, plainText);
-            } else if (msgEvent instanceof com.napcat.core.event.PrivateMessageEvent privateEvent) {
-                String senderName = privateEvent.getSender() != null ? privateEvent.getSender().getNickname() : "未知";
-                long senderId = privateEvent.getUserId();
-                log.info("私聊 [{}({})] {}", senderName, senderId, plainText);
+            if (log.isDebugEnabled()) {
+                if (msgEvent instanceof GroupMessageEvent groupEvent) {
+                    String senderName = groupEvent.getSender() != null ? groupEvent.getSender().getNickname() : "未知";
+                    log.debug("群聊 [{}] [{}({})] {}", groupEvent.getGroupId(), senderName, groupEvent.getUserId(), plainText);
+                } else if (msgEvent instanceof com.napcat.core.event.PrivateMessageEvent privateEvent) {
+                    String senderName = privateEvent.getSender() != null ? privateEvent.getSender().getNickname() : "未知";
+                    log.debug("私聊 [{}({})] {}", senderName, privateEvent.getUserId(), plainText);
+                }
             }
-            
+
             // 命令匹配逻辑
+            boolean commandMatched = false;
             for (List<CommandEntry> entries : commands.values()) {
                 for (CommandEntry entry : entries) {
-                    if (entry.eventType != null && !entry.eventType.isInstance(msgEvent)) continue;
-                    if (entry.filter != null && !entry.filter.test(msgEvent)) continue;
                     CommandHandler.CommandArgs args = matchCommand(entry.template, plainText);
                     if (args != null) {
-                        log.info("命令匹配成功: 模板='{}', 消息='{}', 参数={}", entry.template, plainText, args);
+                        log.debug("命令匹配: 模板='{}', 消息='{}'", entry.template, plainText);
+                        commandMatched = true;
                         try {
                             entry.handler.accept(msgEvent, args);
                             results.add(new HandlerResult(true, null));
                         } catch (StopRoutingException sre) {
-                            log.debug("Command handler stopped routing");
                             results.add(new HandlerResult(true, null));
                             return results;
                         } catch (Exception e) {
                             log.error("Command handler error", e);
                             results.add(new HandlerResult(false, e));
                         }
+                        // 命令匹配成功，默认阻止后续 handler
+                        return results;
                     }
                 }
             }
+
         }
 
         // 2. 注解 handler 匹配
@@ -429,14 +430,20 @@ public class HandlerRegistry implements BotDispatcher {
         if (roleOpt.isPresent()) {
             RoleFilter.Role role = roleOpt.get().value();
             filters.add(e -> {
-                if (!(e instanceof GroupMessageEvent ge)) return false;
-                Sender sender = ge.getSender();
-                return switch (role) {
-                    case OWNER -> sender.isOwner();
-                    case ADMIN -> sender.isAdmin();
-                    case SUPERUSER -> properties.getSuperUsers().contains(ge.getUserId());
-                    default -> true;
-                };
+                if (!(e instanceof MessageEvent msg)) return false;
+                long userId = msg.getUserId();
+                if (e instanceof GroupMessageEvent ge) {
+                    Sender sender = ge.getSender();
+                    return switch (role) {
+                        case OWNER -> sender.isOwner();
+                        case ADMIN -> sender.isAdmin();
+                        case SUPERUSER -> properties.getSuperUsers().contains(userId);
+                        default -> true;
+                    };
+                }
+                // 私聊场景：仅 SUPERUSER 生效
+                return role == RoleFilter.Role.SUPERUSER
+                        && properties.getSuperUsers().contains(userId);
             });
         }
 
@@ -444,9 +451,24 @@ public class HandlerRegistry implements BotDispatcher {
     }
 
     private int calculatePriority(Set<Annotation> annotations) {
-        if (annotations.stream().anyMatch(a -> a instanceof Command)) return 1;
-        if (annotations.stream().anyMatch(a -> a instanceof MentionFilter)) return 10;
-        if (annotations.stream().anyMatch(a -> a instanceof WakeFilter)) return 10;
+        int min = 100;
+        for (Annotation ann : annotations) {
+            int p = extractPriority(ann);
+            if (p < min) {
+                min = p;
+            }
+        }
+        return min;
+    }
+
+    private int extractPriority(Annotation ann) {
+        try {
+            Method m = ann.annotationType().getMethod("priority");
+            if (m.getReturnType() == int.class) {
+                return (int) m.invoke(ann);
+            }
+        } catch (Exception ignored) {
+        }
         return 100;
     }
 
@@ -472,4 +494,16 @@ public class HandlerRegistry implements BotDispatcher {
     }
 
     public record HandlerResult(boolean success, Throwable error) {}
+
+    /**
+     * 获取已注册的命令帮助列表。
+     * @param isAdmin true 返回全部命令（含管理员命令），false 仅返回普通命令
+     */
+    public List<CommandHelp> getHelpCommands(boolean isAdmin) {
+        return commandHelps.stream()
+                .filter(c -> isAdmin || !c.adminOnly())
+                .toList();
+    }
+
+    public record CommandHelp(String template, String description, boolean adminOnly) {}
 }

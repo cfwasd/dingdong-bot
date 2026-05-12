@@ -1,5 +1,6 @@
 package com.napcat.agent.session;
 
+import com.napcat.agent.memory.MemoryStore;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
@@ -11,6 +12,7 @@ public class SessionManager {
     private final Map<SessionKey, Session> sessions = new ConcurrentHashMap<>();
     private final long ttlSeconds;
     private final int maxHistoryMessages;
+    private MemoryStore memoryStore;
 
     public SessionManager() {
         this(3600, 0);
@@ -23,6 +25,24 @@ public class SessionManager {
     public SessionManager(long ttlSeconds, int maxHistoryMessages) {
         this.ttlSeconds = ttlSeconds;
         this.maxHistoryMessages = maxHistoryMessages;
+    }
+
+    public void setMemoryStore(MemoryStore memoryStore) {
+        this.memoryStore = memoryStore;
+    }
+
+    /**
+     * 获取当前所有会话键。
+     */
+    public java.util.Set<SessionKey> getAllKeys() {
+        return new java.util.HashSet<>(sessions.keySet());
+    }
+
+    /**
+     * 获取已有会话，不存在时返回 null。
+     */
+    public Session getIfPresent(SessionKey key) {
+        return sessions.get(key);
     }
 
     /**
@@ -72,9 +92,28 @@ public class SessionManager {
     }
 
     /**
-     * 清除所有过期会话。
+     * 清除所有过期会话。清除前若启用了记忆存储，则全量保存会话历史。
      */
     public void clearExpired() {
+        if (memoryStore != null) {
+            for (Map.Entry<SessionKey, Session> entry : sessions.entrySet()) {
+                Session session = entry.getValue();
+                if (session.isExpired(ttlSeconds) && !session.getHistory().isEmpty()) {
+                    memoryStore.persistFullSession(entry.getKey(), formatSessionHistory(session));
+                }
+            }
+        }
         sessions.entrySet().removeIf(e -> e.getValue().isExpired(ttlSeconds));
+    }
+
+    private String formatSessionHistory(Session session) {
+        StringBuilder sb = new StringBuilder();
+        for (var msg : session.getHistory()) {
+            if ("user".equals(msg.getRole()) || "assistant".equals(msg.getRole())) {
+                sb.append("[").append(msg.getRole()).append("]: ")
+                        .append(msg.getContent() != null ? msg.getContent() : "").append("\n");
+            }
+        }
+        return sb.toString().trim();
     }
 }

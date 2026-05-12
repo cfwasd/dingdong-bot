@@ -68,19 +68,11 @@ public class TaskExecutor {
         Long createdBy = entry.getCreatedBy();
         
         if (isGroup && createdBy != null && createdBy > 0) {
-            // 群聊场景：艾特创建者
             msg = new MessageChain()
                     .at(createdBy)
                     .text(" " + text);
-            log.info("Sent scheduled message with mention: id={}, target={}/{}, creator={}, text={}", 
-                    entry.getId(), entry.getTargetType(), entry.getTargetId(), createdBy,
-                    text.length() > 50 ? text.substring(0, 50) + "..." : text);
         } else {
-            // 私聊或非群聊场景：直接发送文本
             msg = MessageChain.ofText(text);
-            log.info("Sent scheduled message: id={}, target={}/{}, text={}", 
-                    entry.getId(), entry.getTargetType(), entry.getTargetId(), 
-                    text.length() > 50 ? text.substring(0, 50) + "..." : text);
         }
         
         if ("private".equals(entry.getTargetType())) {
@@ -143,16 +135,11 @@ public class TaskExecutor {
                         Long createdBy = entry.getCreatedBy();
                         
                         if (!isPrivate && createdBy != null && createdBy > 0) {
-                            // 群聊场景：艾特创建者
                             msg = new com.napcat.core.message.MessageChain()
                                     .at(createdBy)
                                     .text(" " + reply);
-                            log.info("Sent AI generated message with mention: id={}, target={}, creator={}", 
-                                    entry.getId(), targetId, createdBy);
                         } else {
-                            // 私聊场景：直接发送
                             msg = com.napcat.core.message.MessageChain.ofText(reply);
-                            log.info("Sent AI generated message: id={}, target={}", entry.getId(), targetId);
                         }
                         
                         if (isPrivate) {

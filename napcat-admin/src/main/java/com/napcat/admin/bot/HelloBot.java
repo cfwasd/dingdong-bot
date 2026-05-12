@@ -13,31 +13,19 @@ import org.springframework.stereotype.Component;
 public class HelloBot {
 
     @OnGroupMessage
-    @Command("/hello")
+    @Command(value = "/hello", description = "打招呼")
     public void hello(GroupMessageEvent event) {
         event.reply("Hello NapCat!");
     }
 
     @OnGroupMessage
-    @Command("/天气 {city}")
+    @Command(value = "/天气 {city}", description = "查询指定城市天气")
     public void weather(GroupMessageEvent event, @Param("city") String city) {
         event.reply("查询 " + city + " 的天气：晴 25°C");
     }
 
     @OnGroupMessage
-    public void onGroup(GroupMessageEvent event) {
-        if (event.getRawMessage().contains("在吗")) {
-            event.reply("在的！");
-        }
-    }
-
-    @OnPrivateMessage
-    public void onPrivate(PrivateMessageEvent event) {
-        event.reply("私聊收到：" + event.getPlainText());
-    }
-
-    @OnGroupMessage
-    @Command("/图片")
+    @Command(value = "/图片", description = "发送一张随机图片")
     public MessageChain image() {
         return MessageChain.ofText("给你一张图：").image("https://picsum.photos/200");
     }

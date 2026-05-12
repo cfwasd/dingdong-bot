@@ -6,4 +6,6 @@ import java.lang.annotation.*;
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 public @interface OnMetaEvent {
+    /** 优先级，数值越小优先级越高。默认 100。 */
+    int priority() default 100;
 }

@@ -173,9 +173,14 @@ public class NapCatAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "napcat.agent", name = "enabled", havingValue = "true")
     @ConditionalOnMissingBean
-    public SessionManager sessionManager(NapCatProperties props) {
-        return new SessionManager(props.getAgent().getSessionTtl(),
+    public SessionManager sessionManager(NapCatProperties props, ObjectProvider<MemoryStore> memoryStoreProvider) {
+        SessionManager manager = new SessionManager(props.getAgent().getSessionTtl(),
                 props.getAgent().getMaxHistoryMessages());
+        MemoryStore store = memoryStoreProvider.getIfAvailable();
+        if (store != null) {
+            manager.setMemoryStore(store);
+        }
+        return manager;
     }
 
     @Bean
@@ -201,7 +206,7 @@ public class NapCatAutoConfiguration {
 
         return new NapCatAgent(provider, toolRegistry, sessionManager,
                 ctx.getBeanProvider(MemoryStore.class).getIfAvailable(),
-                ctx.getBeanProvider(MemoryExtractor.class).getIfAvailable(),
+                () -> ctx.getBeanProvider(MemoryExtractor.class).getIfAvailable(),
                 props.getAgent().getSystemPrompt(), props.getAgent().getMaxReactRounds(),
                 props.getAgent().isEnableVision());
     }
@@ -336,6 +341,15 @@ public class NapCatAutoConfiguration {
                 "CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);" +
                 "CREATE INDEX IF NOT EXISTS idx_summaries_user_group_date ON memory_summaries(user_id, group_id, summary_date);");
         mm.migrate();
+
+        // 确保已有数据库的列结构最新（兼容旧数据库）
+        mm.ensureColumn("schedules", "is_recurring", "INTEGER DEFAULT 1");
+        mm.ensureColumn("schedules", "created_by", "INTEGER DEFAULT 0");
+        mm.ensureColumn("memories", "type", "TEXT DEFAULT 'summary'");
+        mm.ensureColumn("memories", "importance", "INTEGER DEFAULT 1");
+        mm.ensureColumn("memory_summaries", "summary_date", "TEXT NOT NULL DEFAULT ''");
+        mm.ensureColumn("memory_summaries", "group_id", "INTEGER NOT NULL DEFAULT 0");
+
         return mm;
     }
 
@@ -383,6 +397,13 @@ public class NapCatAutoConfiguration {
     @ConditionalOnProperty(prefix = "napcat.memory", name = "enabled", havingValue = "true")
     public MemoryExtractor memoryExtractor(MemoryStore memoryStore, NapCatAgent agent, NapCatProperties props) {
         return new MemoryExtractor(memoryStore, agent, props.getMemory().getExtractThreshold());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "napcat.memory", name = {"enabled", "test-data-enabled"}, havingValue = "true")
+    public com.napcat.agent.memory.MemoryTestDataInjector memoryTestDataInjector(DbManager dbManager) {
+        return new com.napcat.agent.memory.MemoryTestDataInjector(dbManager);
     }
 
     // ================================================================
