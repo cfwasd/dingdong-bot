@@ -104,15 +104,20 @@ public class HelloBot {
 - **双编程模型**：注解式（`@OnGroupMessage`、`@Command`）与接口式（`EventHandler`、`CommandHandler`）并存
 - **OneBot11 完整模型**：消息链（MessageChain）、事件、API 请求/响应全覆盖；支持 array / string（CQ 码）双格式上报解析
 - **AI Agent 引擎**：内置 ReAct 轻量循环（默认最多 5 轮），支持 Function Calling / Tool Use
-- **多模态支持**：`MessageChain.toAgentPrompt()` 保留图片、语音、视频等富文本标记；OpenAI Provider 自动将 `[图片:url]` 提取为 `image_url` 多模态消息
+- **多人格角色系统**：内置 5 种人格（默认/傲娇/学者/逗比/知心姐姐），群友可通过 `/persona` 命令随时切换，每个人独立设置
+- **TTS 语音回复**：集成 VoiceCraft（免费 Edge TTS），支持人格声线映射，50% 概率随机触发语音（可切换纯文字/纯语音/默认模式）
+- **文生图（DALL·E/商汤）**：Agent 支持通过 `text_to_image` 工具生成图片，NapCat 原生支持直接发送图片 URL，无需下载
+- **多模态理解**：`MessageChain.toAgentPrompt()` 保留图片、语音、视频等富文本标记；OpenAI Provider 自动将 `[图片:url]` 提取为 `image_url` 多模态消息；LLM 回复中的 Markdown 图片 `![alt](url)` 自动识别并发送
 - **多 LLM 后端**：OpenAI 协议兼容（含多模态/vision）、Anthropic Claude、Ollama 本地模型、自定义 OpenAI 端点
+- **LLM 备用模型**：主模型失败时自动切换到备用模型，支持 openai / anthropic / ollama / custom
 - **Spring Boot 开箱即用**：`napcat-spring-boot-starter` 自动配置，高度可配置化
 - **组合注解**：支持自定义元注解，如 `@OnGroupAt`、`@AdminCommand`
 - **关键词唤醒**：消息包含配置唤醒词时自动触发，无需 @
-- **持久化长期记忆**：SQLite 存储用户关键信息，跨会话自动检索注入上下文，支持每日 LLM 自动归纳
+- **持久化长期记忆**：SQLite 两层存储（碎片化记忆 + 每日 LLM 自动归纳摘要），跨会话自动检索注入上下文
+- **会话上下文**：按用户 ID + 群号隔离的会话管理，支持过期自动清理与 `/clear` 手动重置
 - **定时任务调度**：Agent 可通过工具创建 Cron 定时任务，支持 AI 生成内容或固定文本推送，持久化到 SQLite
-- **LLM 备用模型**：主模型失败时自动切换到备用模型，支持 openai / anthropic / ollama / custom
-- **会话上下文**：按用户 ID + 群号隔离的会话管理，支持过期自动清理与手动重置
+- **丰富群聊工具**：内置 20+ 工具，覆盖搜索、图片生成、翻译、编码解码、定时提醒、历史事件查询、节假日倒计时、分组分队伍、选择困难症终结、热梗段子、真心话大冒险、猜拳、骰子、猜数字、抽签、运势、绕口令等
+- **日志按天分割**：自动滚动归档，保留 30 天，总大小上限 1GB
 
 ---
 

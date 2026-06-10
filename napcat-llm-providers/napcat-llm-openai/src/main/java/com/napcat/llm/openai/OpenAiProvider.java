@@ -218,9 +218,13 @@ public class OpenAiProvider implements LlmProvider {
 
             LlmResponse response = new LlmResponse();
             
-            // 解析 reasoning_content（如果存在）
-            if (message.has("reasoning_content")) {
+            // 解析 reasoning/thinking 内容（不同模型字段名不同）
+            if (message.has("reasoning_content") && !message.path("reasoning_content").isNull()) {
                 response.setReasoningContent(message.path("reasoning_content").asText());
+            } else if (message.has("reasoning") && !message.path("reasoning").isNull()) {
+                response.setReasoningContent(message.path("reasoning").asText());
+            } else if (message.has("thinking") && !message.path("thinking").isNull()) {
+                response.setReasoningContent(message.path("thinking").asText());
             }
             
             response.setContent(message.path("content").asText(null));

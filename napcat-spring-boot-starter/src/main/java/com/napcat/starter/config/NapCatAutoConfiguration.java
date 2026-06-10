@@ -2,15 +2,19 @@ package com.napcat.starter.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.napcat.agent.agent.NapCatAgent;
+import com.napcat.agent.agent.PersonaManager;
 import com.napcat.agent.llm.LlmProvider;
 import com.napcat.agent.session.SessionManager;
 import com.napcat.agent.tool.ToolRegistry;
+import com.napcat.agent.tool.builtin.TextToImageTool;
+import com.napcat.agent.tts.TtsService;
 import com.napcat.core.adapter.*;
 import com.napcat.core.api.NapCatApi;
 import com.napcat.core.config.BotProperties;
 import com.napcat.core.handler.EventDispatcher;
 import com.napcat.core.handler.HandlerRegistry;
 import com.napcat.core.scheduler.*;
+import com.napcat.core.tts.VoicePreferenceStore;
 import com.napcat.agent.memory.*;
 import com.napcat.agent.scheduler.TaskExecutor;
 import com.napcat.agent.scheduler.ScheduleTool;
@@ -188,6 +192,7 @@ public class NapCatAutoConfiguration {
     @ConditionalOnMissingBean
     public NapCatAgent napCatAgent(ObjectProvider<LlmProvider> llmProvider, ToolRegistry toolRegistry,
                                     SessionManager sessionManager, NapCatProperties props,
+                                    ObjectProvider<PersonaManager> personaManagerProvider,
                                     ApplicationContext ctx) {
         LlmProvider provider = llmProvider.getIfAvailable();
         if (provider == null) {
@@ -204,11 +209,30 @@ public class NapCatAutoConfiguration {
             }
         }
 
-        return new NapCatAgent(provider, toolRegistry, sessionManager,
+        NapCatAgent agent = new NapCatAgent(provider, toolRegistry, sessionManager,
                 ctx.getBeanProvider(MemoryStore.class).getIfAvailable(),
                 () -> ctx.getBeanProvider(MemoryExtractor.class).getIfAvailable(),
                 props.getAgent().getSystemPrompt(), props.getAgent().getMaxReactRounds(),
                 props.getAgent().isEnableVision());
+
+        // 注入 PersonaManager
+        PersonaManager pm = personaManagerProvider.getIfAvailable();
+        if (pm != null) {
+            agent.setPersonaManager(pm);
+            log.info("PersonaManager injected into NapCatAgent, {} personas loaded", pm.size());
+        }
+
+        // 注入 TextToImageTool 配置
+        TextToImageTool textToImageTool = ctx.getBeanProvider(TextToImageTool.class).getIfAvailable();
+        if (textToImageTool != null) {
+            var t2i = props.getAgent().getTextToImage();
+            textToImageTool.configure(
+                    t2i.getBaseUrl(), t2i.getApiKey(), t2i.getModel(),
+                    t2i.getSize(), t2i.getQuality(), t2i.getTimeout(), t2i.isEnabled());
+            log.info("TextToImageTool configured: enabled={}", t2i.isEnabled());
+        }
+
+        return agent;
     }
 
     /**
@@ -309,6 +333,32 @@ public class NapCatAutoConfiguration {
     }
 
     // ================================================================
+    // Persona
+    // ================================================================
+
+    @Bean
+    @ConditionalOnProperty(prefix = "napcat.agent", name = "enabled", havingValue = "true")
+    @ConditionalOnMissingBean
+    public PersonaManager personaManager(NapCatProperties props) {
+        PersonaManager manager = new PersonaManager();
+        var personaConfigs = props.getAgent().getPersonas();
+        if (personaConfigs != null) {
+            for (var pc : personaConfigs) {
+                if (pc.getId() != null && pc.getSystemPrompt() != null) {
+                    manager.register(new PersonaManager.PersonaDefinition(
+                            pc.getId(),
+                            pc.getName() != null ? pc.getName() : pc.getId(),
+                            pc.getDescription(),
+                            pc.getSystemPrompt(),
+                            pc.getVoiceProfile()
+                    ));
+                }
+            }
+        }
+        return manager;
+    }
+
+    // ================================================================
     // Database
     // ================================================================
 
@@ -340,6 +390,7 @@ public class NapCatAutoConfiguration {
                 "CREATE INDEX IF NOT EXISTS idx_memories_user_group ON memories(user_id, group_id);" +
                 "CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);" +
                 "CREATE INDEX IF NOT EXISTS idx_summaries_user_group_date ON memory_summaries(user_id, group_id, summary_date);");
+        mm.register(7, "create user_preferences table", VoicePreferenceStore.ddl());
         mm.migrate();
 
         // 确保已有数据库的列结构最新（兼容旧数据库）
@@ -419,6 +470,45 @@ public class NapCatAutoConfiguration {
                 props.getScheduler().getPollIntervalMs(),
                 props.getScheduler().getPollWindowMs());
         return poller;
+    }
+
+    // ================================================================
+    // TTS
+    // ================================================================
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "napcat.agent.tts", name = "enabled", havingValue = "true")
+    public TtsService ttsService(NapCatProperties props) {
+        var ttsCfg = props.getAgent().getTts();
+        TtsService.TtsConfig cfg = new TtsService.TtsConfig();
+        cfg.setEnabled(ttsCfg.isEnabled());
+        cfg.setBaseUrl(ttsCfg.getBaseUrl());
+        cfg.setApiKey(ttsCfg.getApiKey());
+        cfg.setModel(ttsCfg.getModel());
+        cfg.setFormat(ttsCfg.getFormat());
+        cfg.setSpeed(ttsCfg.getSpeed());
+        cfg.setDefaultVoice(ttsCfg.getDefaultVoice());
+        cfg.setTimeout(ttsCfg.getTimeout());
+        cfg.setMaxTextLength(ttsCfg.getMaxTextLength());
+        // 转换声线配置
+        if (ttsCfg.getVoiceProfiles() != null) {
+            for (var entry : ttsCfg.getVoiceProfiles().entrySet()) {
+                TtsService.VoiceProfile vp = new TtsService.VoiceProfile();
+                vp.setVoice(entry.getValue().getVoice());
+                vp.setSpeed(entry.getValue().getSpeed());
+                vp.setPitch(entry.getValue().getPitch());
+                vp.setStyle(entry.getValue().getStyle());
+                cfg.getVoiceProfiles().put(entry.getKey(), vp);
+            }
+        }
+        return new TtsService(cfg);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public VoicePreferenceStore voicePreferenceStore(DbManager dbManager) {
+        return new VoicePreferenceStore(dbManager);
     }
 
     // ================================================================

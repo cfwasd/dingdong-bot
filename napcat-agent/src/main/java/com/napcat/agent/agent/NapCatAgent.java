@@ -28,6 +28,7 @@ public class NapCatAgent {
     private final String defaultSystemPrompt;
     private final int defaultMaxRounds;
     private final boolean enableVision;
+    private PersonaManager personaManager;
 
     public NapCatAgent(LlmProvider llmProvider, ToolRegistry toolRegistry, SessionManager sessionManager,
                        String defaultSystemPrompt, int defaultMaxRounds) {
@@ -56,6 +57,10 @@ public class NapCatAgent {
 
     private MemoryExtractor getMemoryExtractor() {
         return memoryExtractorSupplier != null ? memoryExtractorSupplier.get() : null;
+    }
+
+    public void setPersonaManager(PersonaManager personaManager) {
+        this.personaManager = personaManager;
     }
 
     // ========= 便捷方法：仅 userId（私聊场景，保持向后兼容） =========
@@ -114,7 +119,7 @@ public class NapCatAgent {
 
         // 新会话时注入 system prompt，并自动追加可用工具说明
         if (session.getHistory().isEmpty()) {
-            String prompt = buildEffectivePrompt(config);
+            String prompt = buildEffectivePrompt(sessionKey, config);
             if (prompt != null && !prompt.isBlank()) {
                 // 自动记忆注入已关闭，改由 Agent 通过 retrieve_memory 工具按需检索
                 session.addMessage(new ChatMessage("system", prompt, null));
@@ -179,9 +184,27 @@ public class NapCatAgent {
     }
 
     private String buildEffectivePrompt(AgentConfig config) {
+        return buildEffectivePrompt(null, config);
+    }
+
+    /**
+     * 构建最终 system prompt = 人格 prompt（优先）或用户配置的 systemPrompt + 可用工具清单。
+     * 工具清单确保即使模型 function-calling 能力弱，也能从文本中了解可用工具。
+     *
+     * @param sessionKey 当前会话键，用于查询 PersonaManager 获取激活人格。可为 null。
+     * @param config     Agent 配置
+     */
+    private String buildEffectivePrompt(SessionKey sessionKey, AgentConfig config) {
         StringBuilder sb = new StringBuilder();
 
-        String prompt = config.getSystemPrompt();
+        // 优先级：PersonaManager 激活人格 > AgentConfig 自定义 > 默认 systemPrompt
+        String prompt = null;
+        if (sessionKey != null && personaManager != null && !personaManager.isEmpty()) {
+            prompt = personaManager.getActiveSystemPrompt(sessionKey);
+        }
+        if (prompt == null || prompt.isBlank()) {
+            prompt = config.getSystemPrompt();
+        }
         if (prompt == null || prompt.isBlank()) {
             prompt = defaultSystemPrompt;
         }
@@ -254,6 +277,10 @@ public class NapCatAgent {
                         return reactLoop(session, config, round + 1, toolProcessConsumer);
                     } else {
                         String content = response.getContent();
+                        // 去除首尾空行，避免回复开头有空行
+                        if (content != null) {
+                            content = content.strip();
+                        }
                         ChatMessage assistantMsg = new ChatMessage("assistant", content, null);
                         if (response.getReasoningContent() != null && !response.getReasoningContent().isEmpty()) {
                             assistantMsg.setReasoningContent(response.getReasoningContent());

@@ -127,6 +127,10 @@ public class WsClientAdapter implements BotAdapter {
         try {
             String json = mapper.writeValueAsString(request);
             log.debug("[{}] Sending API request: action={}, echo={}", getId(), request.getAction(), request.getEcho());
+            // 临时调试：打印 forward 相关 API 的完整 JSON
+            if (request.getAction() != null && request.getAction().contains("forward")) {
+                log.info("[{}] FORWARD API JSON: {}", getId(), json);
+            }
             if (client != null && client.isOpen()) {
                 client.send(json);
             } else {

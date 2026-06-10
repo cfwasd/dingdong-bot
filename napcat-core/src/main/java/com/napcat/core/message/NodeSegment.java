@@ -12,7 +12,7 @@ public class NodeSegment extends MessageSegment {
 
     public NodeSegment(long userId, String nickname, MessageChain content) {
         super("node");
-        setDataValue("user_id", String.valueOf(userId));
+        setDataValue("user_id", userId);
         setDataValue("nickname", nickname);
         setDataValue("content", content);
     }

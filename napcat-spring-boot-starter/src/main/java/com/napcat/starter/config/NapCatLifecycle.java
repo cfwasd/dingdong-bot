@@ -22,7 +22,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.SmartLifecycle;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -135,14 +138,47 @@ public class NapCatLifecycle implements SmartLifecycle {
                             && (ge.getMessage().isAt(botProperties.getSelfId())
                                 || botProperties.matchesWakeWord(ge.getMessage().toAgentPrompt()))) {
                         String prompt = ge.getMessage().toAgentPrompt();
+                        List<String> processSteps = Collections.synchronizedList(new ArrayList<>());
                         com.napcat.agent.agent.AgentConfig config =
                                 com.napcat.agent.agent.AgentConfig.builder()
                                         .showToolProcess(true)
                                         .ackCallback(() -> ge.reply(MessageChain.ofFace(277)))
                                         .build();
                         agent.chat(ge.getUserId(), ge.getGroupId(), prompt, config,
-                                toolMsg -> ge.reply(toolMsg))
-                                .thenAccept(reply -> ge.reply(reply));
+                                processSteps::add)
+                                .thenAccept(reply -> {
+                                    ge.reply(reply);
+                                    // 将思考过程以合并转发发送
+                                    if (!processSteps.isEmpty()) {
+                                        try {
+                                            long selfId = botProperties.getSelfId();
+                                            String nickname = String.valueOf(selfId);
+                                            // 使用 raw API 发送合并转发
+                                            List<Map<String, Object>> messages = new ArrayList<>();
+                                            for (String step : processSteps) {
+                                                Map<String, Object> textSeg = new java.util.LinkedHashMap<>();
+                                                textSeg.put("type", "text");
+                                                textSeg.put("data", Map.of("text", step));
+                                                Map<String, Object> nodeData = new java.util.LinkedHashMap<>();
+                                                nodeData.put("name", nickname);
+                                                nodeData.put("uin", String.valueOf(selfId));
+                                                nodeData.put("content", List.of(textSeg));
+                                                Map<String, Object> node = new java.util.LinkedHashMap<>();
+                                                node.put("type", "node");
+                                                node.put("data", nodeData);
+                                                messages.add(node);
+                                            }
+                                            api.call("send_group_forward_msg",
+                                                    "group_id", ge.getGroupId(),
+                                                    "messages", messages);
+                                        } catch (Exception e) {
+                                            log.warn("Failed to send process forward", e);
+                                            for (String step : processSteps) {
+                                                ge.reply(step);
+                                            }
+                                        }
+                                    }
+                                });
                     }
                 });
             }

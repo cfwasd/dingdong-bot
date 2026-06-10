@@ -1,3 +1,4 @@
+
 package com.napcat.admin.bot;
 
 import com.napcat.core.annotation.Command;
@@ -32,22 +33,61 @@ public class HelpBot {
 
     private String buildHelpText(boolean isAdmin) {
         List<HandlerRegistry.CommandHelp> cmds = handlerRegistry.getHelpCommands(isAdmin);
-        if (cmds.isEmpty()) {
-            return "暂无可用命令";
-        }
 
         StringBuilder sb = new StringBuilder();
         sb.append(isAdmin ? "【管理员命令列表】\n" : "【命令列表】\n");
-        for (HandlerRegistry.CommandHelp cmd : cmds) {
-            sb.append(cmd.template());
-            if (cmd.description() != null && !cmd.description().isBlank()) {
-                sb.append(" — ").append(cmd.description());
+        if (cmds.isEmpty()) {
+            sb.append("暂无命令\n");
+        } else {
+            for (HandlerRegistry.CommandHelp cmd : cmds) {
+                sb.append(cmd.template());
+                if (cmd.description() != null && !cmd.description().isBlank()) {
+                    sb.append(" — ").append(cmd.description());
+                }
+                if (cmd.adminOnly()) {
+                    sb.append(" [管]");
+                }
+                sb.append("\n");
             }
-            if (cmd.adminOnly()) {
-                sb.append(" [管]");
-            }
-            sb.append("\n");
         }
+
+        // AI 能力说明
+        sb.append("\n【AI 能力】\n");
+        sb.append("@我 或 喊唤醒词即可对话，支持以下能力：\n");
+        sb.append("• 搜索/天气/新闻 — 自动联网查询\n");
+        sb.append("• 翻译 — \"用英语说你好\" \"翻译成日语\"\n");
+        sb.append("• 讲笑话/段子 — \"来个笑话\"\n");
+        sb.append("• 今日运势 — \"今天运势怎样\"\n");
+        sb.append("• 石头剪刀布 — \"猜拳\"\n");
+        sb.append("• 抽签/掷骰子/随机选 — \"帮我选一个\"\n");
+        sb.append("• 数学计算 — \"算一下 123*456\"\n");
+        sb.append("• 下载文件 — \"帮我下载这个链接\"\n");
+        sb.append("• 日期倒计时 — \"距离春节还有多少天\"\n");
+        sb.append("• 猜数字游戏 — \"来玩猜数字\"\n");
+        sb.append("• 真心话大冒险 — \"真心话大冒险\"\n");
+        sb.append("• 文字特效 — \"翻转文字\" \"删除线效果\"\n");
+        sb.append("• 编码解码 — \"base64编码你好\"\n");
+        sb.append("• 文生图 — \"画一只可爱的猫咪\" \"帮我画一张\"\n");
+        sb.append("• 定时提醒 — \"10分钟后提醒我开会\"\n");
+        sb.append("• 长久记忆 — 聊过的重要事情会记住\n");
+
+        // 人格系统说明
+        sb.append("\n【人格系统】\n");
+        sb.append("/persona — 查看可用人格\n");
+        sb.append("/persona 名称 — 切换你的专属人格\n");
+        sb.append("每个人格独立设置，所有群通用\n");
+
+        // 语音模式
+        sb.append("\n【语音模式】\n");
+        sb.append("/voice — 查看当前语音模式\n");
+        sb.append("/voice on — 每次回复都发语音\n");
+        sb.append("/voice off — 只发文字不发语音\n");
+        sb.append("/voice default — 默认模式（50%概率语音）\n");
+
+        // 其他命令
+        sb.append("\n【其他】\n");
+        sb.append("/clear — 清空当前会话记忆\n");
+
         return sb.toString().trim();
     }
 }
