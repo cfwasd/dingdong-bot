@@ -263,6 +263,8 @@ public class NapCatAgent {
             }
         }
 
+        // 追加格式引导
+        sb.append("\n\n【格式要求】请使用 Markdown 格式回复，支持加粗、列表、代码块等。如需发送图片，使用 [IMAGE:url=图片地址] 格式。");
         return sb.toString().trim().isEmpty() ? null : sb.toString().trim();
     }
 

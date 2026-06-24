@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NapCat Java SDK is a multi-module Maven project providing a Java Bot development framework based on NapCat (OneBot11 protocol), with integrated AI Agent capabilities.
 
+## Prerequisites
+
+- JDK 17+
+- Maven 3.8+
+
 ## Build Commands
 
 ```bash
@@ -20,6 +25,15 @@ mvn spring-boot:run -pl napcat-admin
 
 # Package the admin module as an executable JAR
 mvn package -pl napcat-admin -am -DskipTests
+
+# Run all tests
+mvn test
+
+# Run tests in a single module
+mvn test -pl napcat-spring-boot-starter -am
+
+# Run a single test class
+mvn test -pl napcat-spring-boot-starter -Dtest=AgentWechatClientTest
 ```
 
 ## Module Architecture
@@ -76,6 +90,11 @@ mvn package -pl napcat-admin -am -DskipTests
 - **Annotations for bots**: `@Component` + `@OnGroupMessage` / `@OnPrivateMessage` / `@Command`. Return values are automatically sent as replies.
 - **Tool registration**: Methods annotated with `@Tool` inside Spring `@Component` beans are auto-discovered by `ToolRegistry` in `NapCatAutoConfiguration`.
 - **Role filtering**: Use `@RoleFilter(RoleFilter.Role.SUPERUSER)` for admin-only commands.
-- **Database migrations**: `MigrationManager` in `NapCatAutoConfiguration` runs numbered migrations on startup. New schema changes should be registered there.
+- **Database migrations**: `MigrationManager` in `napcat-core` runs numbered migrations on startup. New schema changes should be registered there.
 - **Configuration**: See `napcat-admin/src/main/resources/application.yml` for all available options. Key prefixes: `napcat.qq`, `napcat.wechat`, `napcat.llm`, `napcat.agent`, `napcat.memory`, `napcat.scheduler`, `napcat.core`.
 - **TDD**: Repository follows the test-first workflow. New behavior in `napcat-spring-boot-starter` (especially `wechat/`) lands as a failing test under `src/test/java` before the production change. Use `MockWebServer` for `AgentWechatClient`, and `FakeClient extends AgentWechatClient` for `AgentWechatPoller` tests.
+- **Agent skills**: External skills (Markdown files consumed by the Agent) are loaded from `skills/` directory (configurable via `napcat.agent.skills-path`). Not to be confused with Claude Code skills in `.claude/`.
+
+## Documentation
+
+Full docs in [docs/](docs/): quick-start, programming model, configuration reference, event/message model, adapter guide, agent guide, internal architecture. Online: https://cfwasd.github.io/napcat-java-agent/

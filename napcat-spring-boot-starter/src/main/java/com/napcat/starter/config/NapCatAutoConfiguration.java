@@ -23,6 +23,7 @@ import com.napcat.starter.adapter.HttpServerAdapter;
 import com.napcat.starter.wechat.AgentWechatClient;
 import com.napcat.starter.wechat.AgentWechatPoller;
 import com.napcat.starter.wechat.WechatIdMapper;
+import com.napcat.starter.qqofficial.QqOfficialLifecycle;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -46,7 +47,7 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @AutoConfiguration
-@EnableConfigurationProperties({NapCatProperties.class, QqProperties.class, WechatProperties.class})
+@EnableConfigurationProperties({NapCatProperties.class, QqProperties.class, WechatProperties.class, QqOfficialProperties.class})
 @ComponentScan("com.napcat")
 public class NapCatAutoConfiguration {
 
@@ -535,6 +536,18 @@ public class NapCatAutoConfiguration {
                                                HandlerRegistry handlerRegistry) {
         return new AgentWechatPoller(client, mapper, wechatProps,
                 (userId, groupId, prompt) -> agent.chat(userId, groupId, prompt), handlerRegistry);
+    }
+
+    // ================================================================
+    // QQ 官方 Bot
+    // ================================================================
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnExpression("${napcat.qq-official.enabled:false} and ${napcat.agent.enabled:false}")
+    public QqOfficialLifecycle qqOfficialLifecycle(QqOfficialProperties props, ObjectMapper mapper,
+                                                   NapCatAgent agent, HandlerRegistry handlerRegistry) {
+        return new QqOfficialLifecycle(props, mapper, agent, handlerRegistry);
     }
 
     private String resolveWechatToken(WechatProperties props) {

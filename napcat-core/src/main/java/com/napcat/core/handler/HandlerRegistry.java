@@ -44,6 +44,10 @@ public class HandlerRegistry implements BotDispatcher {
         this.fallbackHandler = fallbackHandler;
     }
 
+    public Consumer<OB11Event> getFallbackHandler() {
+        return fallbackHandler;
+    }
+
     /**
      * 设置安静模式检查器。
      * @param checker 接受 groupId，返回 true 表示该群处于安静模式

@@ -235,6 +235,19 @@ public class AgentDemoBot {
         return result;
     }
 
+    // ========= Markdown 测试 =========
+
+    /**
+     * /testmd —— 测试 QQ 官方机器人 markdown 图片渲染
+     */
+    @Command(value = "/testmd", description = "测试 markdown 图片")
+    @OnGroupMessage
+    @OnPrivateMessage
+    public String testMarkdown() {
+        return "这是一条 **markdown** 测试消息，包含图片：\n\n" +
+               "![测试图片](https://qqminiapp.cdn-go.cn/qq-open-platform/13b65723/assets/33-2-GiI9drV8.png)";
+    }
+
     // ========= 人格切换命令 =========
 
     /**
