@@ -1,0 +1,19 @@
+package com.dingdong.channel.api;
+
+import lombok.Getter;
+import lombok.Setter;
+
+/**
+ * 渠道事件基类。
+ * 所有渠道（OneBot11 / QQ官方）的事件都继承此类。
+ */
+@Getter
+@Setter
+public abstract class ChannelEvent {
+    /** 渠道标识: "onebot" | "qqofficial" */
+    private String channelId;
+    /** 事件时间戳（秒） */
+    private long timestamp;
+    /** 事件类型（如 "message", "notice", "request", "meta_event"） */
+    private String postType;
+}
