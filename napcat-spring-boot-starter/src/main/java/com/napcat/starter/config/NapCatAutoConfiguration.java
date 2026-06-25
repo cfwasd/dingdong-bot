@@ -20,10 +20,6 @@ import com.napcat.agent.memory.*;
 import com.napcat.agent.scheduler.TaskExecutor;
 import com.napcat.agent.scheduler.ScheduleTool;
 import com.napcat.starter.adapter.HttpServerAdapter;
-import com.napcat.starter.wechat.AgentWechatClient;
-import com.napcat.starter.wechat.AgentWechatPoller;
-import com.napcat.starter.wechat.WechatIdMapper;
-import com.napcat.starter.qqofficial.QqOfficialLifecycle;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -35,9 +31,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
@@ -47,7 +40,7 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @AutoConfiguration
-@EnableConfigurationProperties({NapCatProperties.class, QqProperties.class, WechatProperties.class, QqOfficialProperties.class})
+@EnableConfigurationProperties({NapCatProperties.class, QqProperties.class})
 @ComponentScan("com.napcat")
 public class NapCatAutoConfiguration {
 
@@ -507,67 +500,6 @@ public class NapCatAutoConfiguration {
     @ConditionalOnMissingBean
     public GroupPreferenceStore groupPreferenceStore(DbManager dbManager) {
         return new GroupPreferenceStore(dbManager);
-    }
-
-    // ================================================================
-    // WeChat (agent-wechat REST API)
-    // ================================================================
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "napcat.wechat", name = "enabled", havingValue = "true")
-    public WechatIdMapper wechatIdMapper() {
-        return new WechatIdMapper();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "napcat.wechat", name = "enabled", havingValue = "true")
-    public AgentWechatClient agentWechatClient(WechatProperties props, ObjectMapper mapper) {
-        return new AgentWechatClient(props.getApiBaseUrl(), resolveWechatToken(props),
-                Duration.ofMillis(props.getApiTimeout()), mapper);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnExpression("${napcat.wechat.enabled:false} and ${napcat.agent.enabled:false}")
-    public AgentWechatPoller agentWechatPoller(AgentWechatClient client, WechatIdMapper mapper,
-                                               WechatProperties wechatProps, NapCatAgent agent,
-                                               HandlerRegistry handlerRegistry) {
-        return new AgentWechatPoller(client, mapper, wechatProps,
-                (userId, groupId, prompt) -> agent.chat(userId, groupId, prompt), handlerRegistry);
-    }
-
-    // ================================================================
-    // QQ 官方 Bot
-    // ================================================================
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnExpression("${napcat.qq-official.enabled:false} and ${napcat.agent.enabled:false}")
-    public QqOfficialLifecycle qqOfficialLifecycle(QqOfficialProperties props, ObjectMapper mapper,
-                                                   NapCatAgent agent, HandlerRegistry handlerRegistry) {
-        return new QqOfficialLifecycle(props, mapper, agent, handlerRegistry);
-    }
-
-    private String resolveWechatToken(WechatProperties props) {
-        if (props.getToken() != null && !props.getToken().isBlank()) {
-            return props.getToken().trim();
-        }
-        String tokenFile = props.getTokenFile();
-        if (tokenFile == null || tokenFile.isBlank()) {
-            return "";
-        }
-        String expanded = tokenFile.replace("${user.home}", System.getProperty("user.home"));
-        try {
-            Path path = Path.of(expanded);
-            if (Files.exists(path)) {
-                return Files.readString(path).trim();
-            }
-        } catch (Exception e) {
-            log.warn("Failed to read agent-wechat token file: {}", expanded, e);
-        }
-        return "";
     }
 
     // ================================================================
