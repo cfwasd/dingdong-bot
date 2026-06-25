@@ -1,10 +1,10 @@
 package com.napcat.core.handler;
 
+import com.dingdong.channel.api.ChannelEvent;
 import com.napcat.core.event.GroupMessageEvent;
-import com.napcat.core.event.OB11Event;
 import com.napcat.core.event.PrivateMessageEvent;
 
-public interface EventHandler<E extends OB11Event> {
+public interface EventHandler<E extends ChannelEvent> {
     Class<E> getEventType();
     void handle(E event);
 

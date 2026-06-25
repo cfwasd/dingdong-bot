@@ -1,5 +1,6 @@
 package com.napcat.core.event;
 
+import com.dingdong.channel.api.ChannelEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -16,7 +17,7 @@ public class EventDecoder {
     /**
      * 从已解析的 JsonNode 解码事件，与 {@link #decode(String)} 逻辑一致但避免重复解析。
      */
-    public OB11Event decode(JsonNode root) {
+    public ChannelEvent decode(JsonNode root) {
         try {
             String postType = getString(root, "post_type");
             if (postType == null) {
@@ -29,7 +30,7 @@ public class EventDecoder {
         }
     }
 
-    public OB11Event decode(String json) {
+    public ChannelEvent decode(String json) {
         try {
             JsonNode root = mapper.readTree(json);
             String postType = getString(root, "post_type");
@@ -44,8 +45,8 @@ public class EventDecoder {
         }
     }
 
-    private OB11Event decodeByPostType(JsonNode root, String postType) throws Exception {
-        OB11Event event = switch (postType) {
+    private ChannelEvent decodeByPostType(JsonNode root, String postType) throws Exception {
+        ChannelEvent event = switch (postType) {
             case "message" -> decodeMessage(root);
             case "notice" -> decodeNotice(root);
             case "request" -> decodeRequest(root);
@@ -58,20 +59,20 @@ public class EventDecoder {
         if (event != null) {
             // 心跳事件使用 DEBUG 级别，其他元事件和生命周期事件也使用 DEBUG
             if (event instanceof HeartbeatEvent) {
-                log.debug("Decoded heartbeat event: self_id={}", event.getSelfId());
+                log.debug("Decoded heartbeat event: self_id={}", ((OB11Event) event).getSelfId());
             } else if (event instanceof MetaEvent || event instanceof LifecycleEvent) {
-                log.debug("Decoded meta/lifecycle event: type={}, self_id={}", 
-                        event.getClass().getSimpleName(), event.getSelfId());
+                log.debug("Decoded meta/lifecycle event: type={}, self_id={}",
+                        event.getClass().getSimpleName(), ((OB11Event) event).getSelfId());
             } else {
                 // 消息、通知、请求等实际业务事件使用 INFO 级别
-                log.info("Decoded event: type={}, self_id={}", 
-                        event.getClass().getSimpleName(), event.getSelfId());
+                log.info("Decoded event: type={}, self_id={}",
+                        event.getClass().getSimpleName(), ((OB11Event) event).getSelfId());
             }
         }
         return event;
     }
 
-    private OB11Event decodeMessage(JsonNode root) throws Exception {
+    private ChannelEvent decodeMessage(JsonNode root) throws Exception {
         String messageType = getString(root, "message_type");
         if ("group".equals(messageType)) {
             return mapper.treeToValue(root, GroupMessageEvent.class);

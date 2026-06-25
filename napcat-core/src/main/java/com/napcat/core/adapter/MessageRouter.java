@@ -1,5 +1,6 @@
 package com.napcat.core.adapter;
 
+import com.dingdong.channel.api.ChannelEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.napcat.core.api.NapCatApi;
@@ -11,7 +12,7 @@ import java.util.function.Consumer;
 
 /**
  * 统一消息路由器，所有 BotAdapter 的原始消息均汇入此处。
- * 
+ *
  * 判定顺序：post_type 存在 → 事件；echo 存在 → API 响应。
  * 两者可同时存在（罕见但合法），各自独立分发。
  */
@@ -22,7 +23,7 @@ public class MessageRouter implements Consumer<String> {
     private final EventDecoder eventDecoder;
     private final NapCatApi api;
 
-    private Consumer<OB11Event> eventConsumer;
+    private Consumer<ChannelEvent> eventConsumer;
 
     public MessageRouter(ObjectMapper mapper, NapCatApi api) {
         this.mapper = mapper;
@@ -30,7 +31,7 @@ public class MessageRouter implements Consumer<String> {
         this.api = api;
     }
 
-    public void setEventConsumer(Consumer<OB11Event> consumer) {
+    public void setEventConsumer(Consumer<ChannelEvent> consumer) {
         this.eventConsumer = consumer;
     }
 
@@ -63,7 +64,7 @@ public class MessageRouter implements Consumer<String> {
 
     private void dispatchEvent(JsonNode root) {
         try {
-            OB11Event event = eventDecoder.decode(root);
+            ChannelEvent event = eventDecoder.decode(root);
             if (event != null && eventConsumer != null) {
                 log.debug("Dispatching event: post_type={}, class={}",
                         event.getPostType(), event.getClass().getSimpleName());

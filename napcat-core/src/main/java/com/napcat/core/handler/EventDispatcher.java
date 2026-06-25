@@ -1,5 +1,6 @@
 package com.napcat.core.handler;
 
+import com.dingdong.channel.api.ChannelEvent;
 import com.napcat.core.api.NapCatApi;
 import com.napcat.core.config.BotProperties;
 import com.napcat.core.event.OB11Event;
@@ -37,7 +38,7 @@ public class EventDispatcher {
         this.executor = executor;
     }
 
-    public void dispatch(OB11Event event) {
+    public void dispatch(ChannelEvent event) {
         if (event == null) return;
 
         if (properties.isIgnoreSelfMessage()
@@ -48,7 +49,7 @@ public class EventDispatcher {
         }
 
         log.info("Dispatching event: type={}, selfId={}, class={}",
-                event.getPostType(), event.getSelfId(), event.getClass().getSimpleName());
+                event.getPostType(), event instanceof OB11Event ob11 ? ob11.getSelfId() : 0, event.getClass().getSimpleName());
 
         com.napcat.core.context.EventContext ctx = com.napcat.core.context.EventContextHolder.get();
 

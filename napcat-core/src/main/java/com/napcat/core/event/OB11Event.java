@@ -1,19 +1,23 @@
 package com.napcat.core.event;
 
+import com.dingdong.channel.api.ChannelEvent;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 @JsonIgnoreProperties(ignoreUnknown = true)
-public abstract class OB11Event {
-
-    @JsonProperty("time")
-    private long time;
+public abstract class OB11Event extends ChannelEvent {
 
     @JsonProperty("self_id")
     private long selfId;
 
-    @JsonProperty("post_type")
-    private String postType;
+    @JsonProperty("time")
+    private long time;
+
+    public OB11Event() {
+        setChannelId("onebot");
+    }
 }

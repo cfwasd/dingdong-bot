@@ -32,4 +32,11 @@ public @interface Command {
      * 默认 false。
      */
     boolean silentModeAllowed() default false;
+
+    /**
+     * 允许执行该命令的渠道标识数组。
+     * 空数组表示所有渠道均可执行。
+     * 例如 {"onebot", "qqofficial"}。
+     */
+    String[] channels() default {};
 }

@@ -1,5 +1,6 @@
 package com.dingdong.channel.api;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -15,5 +16,6 @@ public abstract class ChannelEvent {
     /** 事件时间戳（秒） */
     private long timestamp;
     /** 事件类型（如 "message", "notice", "request", "meta_event"） */
+    @JsonProperty("post_type")
     private String postType;
 }

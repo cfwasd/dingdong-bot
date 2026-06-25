@@ -235,6 +235,20 @@ public class QqOfficialApi {
         }
         String url = baseUrl + path;
         String json = mapper.writeValueAsString(body);
+        try {
+            executePost(url, json);
+        } catch (IOException e) {
+            if (isTokenExpired(e.getMessage())) {
+                log.info("QQ official token expired on {}, refreshing and retrying", path);
+                forceRefreshToken();
+                executePost(url, json);
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    private void executePost(String url, String json) throws IOException {
         Request request = new Request.Builder()
                 .url(url)
                 .header("Authorization", "QQBot " + getAccessToken())
@@ -244,10 +258,22 @@ public class QqOfficialApi {
         try (Response response = client.newCall(request).execute()) {
             String respBody = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
-                log.warn("QQ official API {} failed: {} {}", path, response.code(), respBody);
+                log.warn("QQ official API POST failed: {} {}", response.code(), respBody);
                 throw new IOException("API call failed: " + response.code() + " " + respBody);
             }
-            log.debug("QQ official API {} OK", path);
+            log.debug("QQ official API POST OK");
+        }
+    }
+
+    private boolean isTokenExpired(String errorMessage) {
+        return errorMessage != null && errorMessage.contains("11244");
+    }
+
+    private void forceRefreshToken() throws IOException {
+        synchronized (this) {
+            accessToken = null;
+            tokenExpiresAt = 0;
+            getAccessToken();
         }
     }
 

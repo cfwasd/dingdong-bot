@@ -1,5 +1,7 @@
 package com.napcat.core.event;
 
+import com.dingdong.channel.api.ChannelIdentity;
+import com.dingdong.channel.api.ChannelMessageEvent;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -13,32 +15,48 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @JsonIgnoreProperties(ignoreUnknown = true)
-public abstract class MessageEvent extends OB11Event {
+public abstract class MessageEvent extends ChannelMessageEvent {
+
+    @JsonProperty("self_id")
+    private long selfId;
 
     @JsonProperty("message_id")
-    private int messageId;
+    private long messageId;
 
     @JsonProperty("user_id")
     private long userId;
 
-    @JsonProperty("message")
-    private MessageChain message;
-
     @JsonProperty("raw_message")
     private String rawMessage;
 
-    @JsonProperty("font")
-    private int font;
+    @JsonProperty("message")
+    private MessageChain message;
 
     @JsonProperty("sender")
-    private Sender sender;
+    private Sender senderObj;
 
     /**
      * 不参与序列化，由 {@code NapCatLifecycle} 在事件分发前注入。
      * 解决异步回调（Agent/CompletableFuture）中 ThreadLocal EventContext 丢失的问题。
      */
     @JsonIgnore
-    private transient NapCatApi api;
+    private transient NapCatApi napCatApi;
+
+    public MessageEvent() {
+        setChannelId("onebot");
+    }
+
+    public ChannelIdentity getChannelUser() {
+        return ChannelIdentity.of("onebot", String.valueOf(userId), userId);
+    }
+
+    public ChannelIdentity getChannelGroup() {
+        if (this instanceof GroupMessageEvent ge) {
+            long gid = ge.getGroupId();
+            return gid > 0 ? ChannelIdentity.of("onebot", String.valueOf(gid), gid) : null;
+        }
+        return null;
+    }
 
     public String getPlainText() {
         return message == null ? "" : message.toPlainText();
@@ -69,7 +87,7 @@ public abstract class MessageEvent extends OB11Event {
     }
 
     private NapCatApi resolveApi() {
-        if (api != null) return api;
+        if (napCatApi != null) return napCatApi;
         EventContext ctx = EventContextHolder.get();
         return ctx != null ? ctx.getApi() : null;
     }

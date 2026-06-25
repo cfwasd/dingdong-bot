@@ -418,11 +418,11 @@ public class AgentDemoBot {
             return com.napcat.core.group.GroupPreferenceStore.PRIORITY_SUPERUSER;
         }
         // 群主
-        if (event.getSender() != null && event.getSender().isOwner()) {
+        if (event.getSenderObj() != null && event.getSenderObj().isOwner()) {
             return com.napcat.core.group.GroupPreferenceStore.PRIORITY_OWNER;
         }
         // 管理员
-        if (event.getSender() != null && event.getSender().isAdmin()) {
+        if (event.getSenderObj() != null && event.getSenderObj().isAdmin()) {
             return com.napcat.core.group.GroupPreferenceStore.PRIORITY_ADMIN;
         }
         // 普通成员

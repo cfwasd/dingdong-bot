@@ -284,7 +284,7 @@ public class AgentWechatPoller implements SmartLifecycle {
         event.setGroupId(groupId);
         event.setSubType("normal");
         event.setMessageSeq(message.getLocalId());
-        event.setApi(wechatApi(chat.getId()));
+        event.setNapCatApi(wechatApi(chat.getId()));
         return event;
     }
 
@@ -292,12 +292,12 @@ public class AgentWechatPoller implements SmartLifecycle {
         PrivateMessageEvent event = new PrivateMessageEvent();
         fillMessageEvent(event, message, userId, content);
         event.setSubType("friend");
-        event.setApi(wechatApi(message.getChatId()));
+        event.setNapCatApi(wechatApi(message.getChatId()));
         return event;
     }
 
     private void fillMessageEvent(MessageEvent event, AgentWechatMessage message, long userId, String content) {
-        event.setTime(System.currentTimeMillis() / 1000);
+        event.setTimestamp(System.currentTimeMillis() / 1000);
         event.setPostType("message");
         event.setSelfId(0L);
         event.setMessageId((int) Math.min(Integer.MAX_VALUE, message.getLocalId()));
@@ -307,7 +307,7 @@ public class AgentWechatPoller implements SmartLifecycle {
         Sender sender = new Sender();
         sender.setUserId(userId);
         sender.setNickname(firstNonBlank(message.getSenderName(), message.getSender(), "微信用户"));
-        event.setSender(sender);
+        event.setSenderObj(sender);
     }
 
     private NapCatApi wechatApi(String chatId) {

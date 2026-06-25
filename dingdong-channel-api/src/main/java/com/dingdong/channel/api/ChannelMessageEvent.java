@@ -1,5 +1,6 @@
 package com.dingdong.channel.api;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -15,9 +16,11 @@ public class ChannelMessageEvent extends ChannelEvent {
     /** 纯文本内容 */
     private String plainText;
     /** 发送者信息 */
+    @JsonIgnore
     private ChannelMessageSender sender;
     /** 消息目标 */
     private ChannelMessageTarget messageTarget;
     /** 统一的回复 API */
+    @JsonIgnore
     private MessageSender api;
 }

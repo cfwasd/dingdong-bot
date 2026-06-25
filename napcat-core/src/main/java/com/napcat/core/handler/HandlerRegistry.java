@@ -1,5 +1,7 @@
 package com.napcat.core.handler;
 
+import com.dingdong.channel.api.ChannelEvent;
+import com.dingdong.channel.api.annotation.ChannelRestrict;
 import com.napcat.core.annotation.*;
 import com.napcat.core.config.BotProperties;
 import com.napcat.core.event.*;
@@ -24,11 +26,11 @@ public class HandlerRegistry implements BotDispatcher {
     private final BotProperties properties;
     private final List<HandlerEntry<?>> handlers = new ArrayList<>();
     private final Map<String, List<CommandEntry>> commands = new ConcurrentHashMap<>();
-    private final Map<Class<? extends OB11Event>, List<Consumer<OB11Event>>> eventHandlers = new ConcurrentHashMap<>();
+    private final Map<Class<? extends ChannelEvent>, List<Consumer<ChannelEvent>>> eventHandlers = new ConcurrentHashMap<>();
     private final List<CommandHelp> commandHelps = new ArrayList<>();
 
     /** 当事件未被任何 handler 处理时的兜底回调（用于 at-me-trigger 等场景） */
-    private Consumer<OB11Event> fallbackHandler;
+    private Consumer<ChannelEvent> fallbackHandler;
 
     /** 安静模式检查器：接受 groupId，返回 true 表示该群处于安静模式 */
     private java.util.function.LongPredicate silentModeChecker = groupId -> false;
@@ -40,11 +42,11 @@ public class HandlerRegistry implements BotDispatcher {
     /**
      * 设置兜底 handler。当事件经过命令/注解/接口全部匹配后无任何 handler 命中时调用。
      */
-    public void setFallbackHandler(Consumer<OB11Event> fallbackHandler) {
+    public void setFallbackHandler(Consumer<ChannelEvent> fallbackHandler) {
         this.fallbackHandler = fallbackHandler;
     }
 
-    public Consumer<OB11Event> getFallbackHandler() {
+    public Consumer<ChannelEvent> getFallbackHandler() {
         return fallbackHandler;
     }
 
@@ -70,8 +72,8 @@ public class HandlerRegistry implements BotDispatcher {
 
     @Override
     @SuppressWarnings("unchecked")
-    public void onEvent(Class<? extends OB11Event> type, Consumer<OB11Event> handler) {
-        eventHandlers.computeIfAbsent((Class<? extends OB11Event>) type, k -> new ArrayList<>())
+    public void onEvent(Class<? extends ChannelEvent> type, Consumer<ChannelEvent> handler) {
+        eventHandlers.computeIfAbsent((Class<? extends ChannelEvent>) type, k -> new ArrayList<>())
                 .add(handler);
     }
 
@@ -83,7 +85,7 @@ public class HandlerRegistry implements BotDispatcher {
     @Override
     public void registerCommand(String template, BiConsumer<MessageEvent, CommandHandler.CommandArgs> handler, Predicate<MessageEvent> filter) {
         commands.computeIfAbsent(template, k -> new ArrayList<>())
-                .add(new CommandEntry(template, handler, filter, null, false));
+                .add(new CommandEntry(template, handler, filter, null, false, new String[0]));
     }
 
     public void registerBean(Object bean) {
@@ -99,9 +101,9 @@ public class HandlerRegistry implements BotDispatcher {
     @SuppressWarnings("unchecked")
     public void registerEventHandler(EventHandler<?> handler) {
         Class<?> eventType = handler.getEventType();
-        onEvent((Class<? extends OB11Event>) eventType, e -> {
+        onEvent((Class<? extends ChannelEvent>) eventType, e -> {
             try {
-                ((EventHandler<OB11Event>) handler).handle(e);
+                ((EventHandler<ChannelEvent>) handler).handle(e);
             } catch (Exception ex) {
                 log.error("Event handler error", ex);
             }
@@ -162,7 +164,7 @@ public class HandlerRegistry implements BotDispatcher {
                 String template = properties.getCommandPrefix() + cmd.value();
                 CommandEntry entry = new CommandEntry(template,
                         (event, args) -> invokeMethod(bean, method, event, args),
-                        msgFilter, eventType, cmd.silentModeAllowed());
+                        msgFilter, eventType, cmd.silentModeAllowed(), cmd.channels());
                 commands.computeIfAbsent(template, k -> new ArrayList<>()).add(entry);
                 commandHelps.add(new CommandHelp(template, cmd.description(), cmd.adminOnly()));
                 log.debug("Registered command handler: {} on method {} type={} silentModeAllowed={}",
@@ -175,26 +177,26 @@ public class HandlerRegistry implements BotDispatcher {
         Predicate<Object> condition = createEventFilter(annotations);
 
         if (hasGroupMessage) {
-            handlers.add(new HandlerEntry<>(GroupMessageEvent.class, priority, condition, e -> invokeMethod(bean, method, e)));
+            handlers.add(new HandlerEntry<>(GroupMessageEvent.class, priority, condition, e -> invokeMethod(bean, method, e), method));
         }
         if (hasPrivateMessage) {
-            handlers.add(new HandlerEntry<>(PrivateMessageEvent.class, priority, condition, e -> invokeMethod(bean, method, e)));
+            handlers.add(new HandlerEntry<>(PrivateMessageEvent.class, priority, condition, e -> invokeMethod(bean, method, e), method));
         }
     }
 
-    private void invokeMethod(Object bean, Method method, OB11Event event, CommandHandler.CommandArgs args) {
+    private void invokeMethod(Object bean, Method method, ChannelEvent event, CommandHandler.CommandArgs args) {
         try {
             Parameter[] params = method.getParameters();
             Object[] argsArray = new Object[params.length];
             for (int i = 0; i < params.length; i++) {
                 Parameter param = params[i];
                 Class<?> paramType = param.getType();
-                
-                if (OB11Event.class.isAssignableFrom(paramType)) {
+
+                if (ChannelEvent.class.isAssignableFrom(paramType)) {
                     if (paramType.isInstance(event)) {
                         argsArray[i] = event;
                     } else {
-                        log.warn("Event type mismatch: expected {}, got {}. Setting to null.", 
+                        log.warn("Event type mismatch: expected {}, got {}. Setting to null.",
                                 paramType.getSimpleName(), event.getClass().getSimpleName());
                         argsArray[i] = null;
                     }
@@ -206,7 +208,7 @@ public class HandlerRegistry implements BotDispatcher {
                     try {
                         argsArray[i] = convertType(value, paramType);
                     } catch (Exception e) {
-                        log.error("Failed to convert parameter '{}' with value '{}' to type {}: {}", 
+                        log.error("Failed to convert parameter '{}' with value '{}' to type {}: {}",
                                 key, value, paramType.getSimpleName(), e.getMessage());
                         argsArray[i] = null;
                     }
@@ -227,19 +229,19 @@ public class HandlerRegistry implements BotDispatcher {
         }
     }
 
-    private void invokeMethod(Object bean, Method method, OB11Event event) {
+    private void invokeMethod(Object bean, Method method, ChannelEvent event) {
         try {
             Parameter[] params = method.getParameters();
             Object[] argsArray = new Object[params.length];
             for (int i = 0; i < params.length; i++) {
                 Parameter param = params[i];
                 Class<?> paramType = param.getType();
-                
-                if (OB11Event.class.isAssignableFrom(paramType)) {
+
+                if (ChannelEvent.class.isAssignableFrom(paramType)) {
                     if (paramType.isInstance(event)) {
                         argsArray[i] = event;
                     } else {
-                        log.warn("Event type mismatch: expected {}, got {}. Setting to null.", 
+                        log.warn("Event type mismatch: expected {}, got {}. Setting to null.",
                                 paramType.getSimpleName(), event.getClass().getSimpleName());
                         argsArray[i] = null;
                     }
@@ -260,7 +262,7 @@ public class HandlerRegistry implements BotDispatcher {
         }
     }
 
-    private void handleReturnValue(Object result, OB11Event event) {
+    private void handleReturnValue(Object result, ChannelEvent event) {
         if (result == null) return;
         if (event instanceof MessageEvent msgEvent) {
             if (result instanceof String text) {
@@ -305,7 +307,7 @@ public class HandlerRegistry implements BotDispatcher {
     }
 
     @SuppressWarnings("unchecked")
-    public List<HandlerResult> dispatch(OB11Event event) {
+    public List<HandlerResult> dispatch(ChannelEvent event) {
         List<HandlerResult> results = new ArrayList<>();
 
         // 只记录非心跳事件的调度信息，且使用 DEBUG 级别
@@ -350,6 +352,11 @@ public class HandlerRegistry implements BotDispatcher {
                             log.debug("安静模式下跳过命令: {}", entry.template);
                             continue;
                         }
+                        // 渠道检查
+                        if (!isChannelAllowed(entry, event)) {
+                            log.debug("渠道限制跳过命令: {} (channel={})", entry.template, event.getChannelId());
+                            continue;
+                        }
                         log.debug("命令匹配: 模板='{}', 消息='{}'", entry.template, plainText);
                         commandMatched = true;
                         try {
@@ -388,12 +395,20 @@ public class HandlerRegistry implements BotDispatcher {
         }
         
         for (HandlerEntry<?> h : matchedHandlers) {
+            // 渠道限制检查
+            if (h.getMethod() != null && !isChannelAllowed(h.getMethod(), event)) {
+                if (!(event instanceof com.napcat.core.event.HeartbeatEvent)) {
+                    log.debug("渠道限制跳过 handler: eventType={} (channel={})",
+                            h.eventType.getSimpleName(), event.getChannelId());
+                }
+                continue;
+            }
             try {
                 if (!(event instanceof com.napcat.core.event.HeartbeatEvent)) {
                     log.debug("Executing annotation handler: eventType={}, priority={}", 
                             h.eventType.getSimpleName(), h.priority);
                 }
-                ((Consumer<OB11Event>) h.executor).accept(event);
+                ((Consumer<ChannelEvent>) h.executor).accept(event);
                 results.add(new HandlerResult(true, null));
             } catch (StopRoutingException sre) {
                 log.debug("Annotation handler stopped routing");
@@ -406,7 +421,7 @@ public class HandlerRegistry implements BotDispatcher {
         }
 
         // 3. 接口 handler 匹配
-        List<Consumer<OB11Event>> consumers = eventHandlers.get(event.getClass());
+        List<Consumer<ChannelEvent>> consumers = eventHandlers.get(event.getClass());
         if (consumers != null && !consumers.isEmpty()) {
             if (!(event instanceof com.napcat.core.event.HeartbeatEvent)) {
                 log.debug("Matched interface handlers: count={}", consumers.size());
@@ -522,7 +537,7 @@ public class HandlerRegistry implements BotDispatcher {
                 if (!(e instanceof MessageEvent msg)) return false;
                 long userId = msg.getUserId();
                 if (e instanceof GroupMessageEvent ge) {
-                    Sender sender = ge.getSender();
+                    Sender sender = ge.getSenderObj();
                     return switch (role) {
                         case OWNER -> sender.isOwner();
                         case ADMIN -> sender.isAdmin();
@@ -567,6 +582,20 @@ public class HandlerRegistry implements BotDispatcher {
         private final int priority;
         private final Predicate<Object> condition;
         private final Consumer<E> executor;
+        /** 注册此 handler 的方法（用于 @ChannelRestrict 检查） */
+        private final Method method;
+
+        public HandlerEntry(Class<E> eventType, int priority, Predicate<Object> condition, Consumer<E> executor) {
+            this(eventType, priority, condition, executor, null);
+        }
+
+        public HandlerEntry(Class<E> eventType, int priority, Predicate<Object> condition, Consumer<E> executor, Method method) {
+            this.eventType = eventType;
+            this.priority = priority;
+            this.condition = condition;
+            this.executor = executor;
+            this.method = method;
+        }
 
         public int priority() {
             return priority;
@@ -582,6 +611,8 @@ public class HandlerRegistry implements BotDispatcher {
         private final Class<? extends MessageEvent> eventType;
         /** 是否允许在安静模式下执行 */
         private final boolean silentModeAllowed;
+        /** 允许执行该命令的渠道标识数组；空数组表示全部渠道 */
+        private final String[] channels;
     }
 
     public record HandlerResult(boolean success, Throwable error) {}
@@ -597,4 +628,37 @@ public class HandlerRegistry implements BotDispatcher {
     }
 
     public record CommandHelp(String template, String description, boolean adminOnly) {}
+
+    /**
+     * 检查命令是否允许在事件所在的渠道执行。
+     */
+    private boolean isChannelAllowed(CommandEntry entry, ChannelEvent event) {
+        if (event == null) return true;
+        String[] channels = entry.getChannels();
+        if (channels == null || channels.length == 0) return true;
+        String eventChannel = event.getChannelId();
+        for (String allowed : channels) {
+            if (allowed.equals(eventChannel)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 检查注解 handler 所在的方法/类是否有 @ChannelRestrict 限制。
+     */
+    private boolean isChannelAllowed(Method method, ChannelEvent event) {
+        if (event == null) return true;
+        ChannelRestrict restrict = method.getAnnotation(ChannelRestrict.class);
+        if (restrict == null) {
+            restrict = method.getDeclaringClass().getAnnotation(ChannelRestrict.class);
+        }
+        if (restrict == null || restrict.value().length == 0) {
+            return true;
+        }
+        String eventChannel = event.getChannelId();
+        for (String allowed : restrict.value()) {
+            if (allowed.equals(eventChannel)) return true;
+        }
+        return false;
+    }
 }

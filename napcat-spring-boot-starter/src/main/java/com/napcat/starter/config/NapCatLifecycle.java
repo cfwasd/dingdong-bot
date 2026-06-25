@@ -11,7 +11,7 @@ import com.napcat.core.config.BotProperties;
 import com.napcat.core.context.EventContext;
 import com.napcat.core.context.EventContextHolder;
 import com.napcat.core.event.GroupMessageEvent;
-import com.napcat.core.event.OB11Event;
+import com.dingdong.channel.api.ChannelEvent;
 import com.napcat.core.handler.EventDispatcher;
 import com.napcat.core.handler.HandlerRegistry;
 import com.napcat.core.message.MessageChain;
@@ -191,10 +191,10 @@ public class NapCatLifecycle implements SmartLifecycle {
         running = true;
     }
 
-    private void onEvent(OB11Event event) {
+    private void onEvent(ChannelEvent event) {
         // 注入 API 到事件对象，确保异步回调（Agent 等）跨线程 reply 可用
         if (event instanceof com.napcat.core.event.MessageEvent me) {
-            me.setApi(api);
+            me.setNapCatApi(api);
         }
         EventContextHolder.set(new EventContext(event, api));
         try {

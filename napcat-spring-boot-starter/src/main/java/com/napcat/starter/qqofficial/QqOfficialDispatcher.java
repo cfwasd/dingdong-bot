@@ -198,7 +198,7 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
         }
 
         fillMessageEvent(msgEvent, event, userId, content, eventType);
-        msgEvent.setApi(new NapCatApi(new ReplyAdapter(userOpenid, groupOpenid, msgId, groupId != 0)));
+        msgEvent.setNapCatApi(new NapCatApi(new ReplyAdapter(userOpenid, groupOpenid, msgId, groupId != 0)));
 
         // 临时清除 fallbackHandler，避免 QQ 通道的 at-me-trigger 干扰命令判断
         var savedFallback = handlerRegistry.getFallbackHandler();
@@ -213,7 +213,7 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
 
     private void fillMessageEvent(MessageEvent event, JsonNode raw, long userId,
                                   String content, String eventType) {
-        event.setTime(System.currentTimeMillis() / 1000);
+        event.setTimestamp(System.currentTimeMillis() / 1000);
         event.setPostType("message");
         event.setSelfId(0L);
         event.setMessageId(Math.abs(raw.path("id").asText("").hashCode()));
@@ -227,7 +227,7 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
         String nick = author.path("user_openid").asText("");
         if (nick.isEmpty()) nick = author.path("member_openid").asText("");
         sender.setNickname(nick.isEmpty() ? "QQ用户" : nick);
-        event.setSender(sender);
+        event.setSenderObj(sender);
     }
 
     private String buildPrompt(JsonNode event, String eventType, String content) {
