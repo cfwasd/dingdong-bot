@@ -18,4 +18,6 @@ public abstract class ChannelEvent {
     /** 事件类型（如 "message", "notice", "request", "meta_event"） */
     @JsonProperty("post_type")
     private String postType;
+    /** 标记此事件是否已被命令处理器处理（不序列化） */
+    private transient boolean commandHandled;
 }

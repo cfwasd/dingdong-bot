@@ -54,7 +54,9 @@
       "Bash(cygpath -w /tmp/tmp.y8c4saRa01/agent-wechat)",
       "Bash(mvn *)",
       "Skill(code-review)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(Get-ChildItem *)",
+      "Bash(Select-String -Pattern \"BUILD|ERROR\")"
     ]
   }
 }

@@ -8,23 +8,33 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
       </profile>
-      <profile name="Annotation profile for napcat-parent" enabled="true">
+      <profile name="Annotation profile for dingdong-parent" enabled="true">
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <processorPath useClasspath="false">
           <entry name="D:/maven-repo/org/projectlombok/lombok/1.18.30/lombok-1.18.30.jar" />
         </processorPath>
-        <module name="napcat-spring-boot-starter" />
-        <module name="napcat-admin" />
-        <module name="napcat-llm-openai" />
-        <module name="napcat-llm-ollama" />
-        <module name="napcat-core" />
-        <module name="napcat-llm-anthropic" />
-        <module name="napcat-agent" />
+        <module name="dingdong-agent" />
+        <module name="dingdong-channel-api" />
+        <module name="dingdong-core" />
+        <module name="dingdong-qqofficial" />
+        <module name="dingdong-admin" />
+        <module name="dingdong-boot-starter" />
+        <module name="dingdong-llm-anthropic" />
+        <module name="dingdong-llm-ollama" />
+        <module name="dingdong-cultivation" />
+        <module name="dingdong-llm-openai" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
+      <module name="napcat-admin" target="17" />
+      <module name="napcat-agent" target="17" />
+      <module name="napcat-core" target="17" />
+      <module name="napcat-llm-anthropic" target="17" />
+      <module name="napcat-llm-ollama" target="17" />
+      <module name="napcat-llm-openai" target="17" />
+      <module name="napcat-spring-boot-starter" target="17" />
       <module name="napcat-wechat" target="17" />
     </bytecodeTargetLevel>
   </component>

@@ -88,6 +88,9 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
 
         if (eventConsumer != null) eventConsumer.accept(msgEvent);
 
+        // 命令已处理，不再触发 Agent
+        if (msgEvent.isCommandHandled()) return;
+
         if (!shouldTrigger(isC2c, isGroupAt, isGroupFull, content, event)) return;
 
         String prompt = buildPrompt(event, eventType, cleanedContentFinal);

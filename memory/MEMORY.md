@@ -4,3 +4,4 @@
 - [微信跳过 OneBot raw API](wechat-onebot-raw-api-skip.md) — 调 NapCatApi 前先 `isAvailable()`，避免 No BotAdapter 异常
 - [项目 TDD 工作流](project-tdd-workflow.md) — wechat 模块新行为必须先写失败测试再实现
 - [agent-wechat 源码与 API 参考](agent-wechat-source.md) — 本地源码路径、关键 schema、msg type=3 是图片
+- [叮咚重构完整进度](project-dingdong-refactoring-progress.md) — 6/8 tasks完成，含完整文件清单/git提交/目录结构/待办命令，2026-06-25

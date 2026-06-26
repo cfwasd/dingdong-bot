@@ -14,6 +14,8 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.ThreadLocalRandom;
 
+import static com.dingdong.cultivation.CultivationConstants.*;
+
 @Slf4j
 @Component
 public class CultivationTool {
@@ -22,21 +24,6 @@ public class CultivationTool {
     private volatile boolean tableReady;
 
     private static final DateTimeFormatter ISO_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
-
-    private static final String[][] REALMS = {
-        {"mortal", "凡人", "0"},
-        {"lianqi", "练气", "100"},
-        {"zhuji", "筑基", "300"},
-        {"jindan", "金丹", "600"},
-        {"yuanying", "元婴", "1000"},
-        {"huashen", "化神", "1500"},
-        {"dujie", "渡劫", "2200"},
-        {"dacheng", "大乘", "3000"},
-        {"zhenxian", "真仙", "4000"},
-    };
-
-    private static final String[] SUB_LEVEL_NAMES = {"", "初期", "中期", "后期", "圆满"};
-    private static final double[] REALM_COEFF = {1.0, 1.2, 1.5, 1.8, 2.2, 2.6, 3.0, 3.5, 4.0};
 
     private static final String[][] MOVE_POOL = {
         {"天雷破", "20", "引天雷之力，直劈而下"},
@@ -62,26 +49,7 @@ public class CultivationTool {
         synchronized (this) {
             if (tableReady) return;
             try (Connection conn = dbManager.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(
-                     "CREATE TABLE IF NOT EXISTS cultivation_users (" +
-                     "user_id INTEGER NOT NULL," +
-                     "group_id INTEGER NOT NULL DEFAULT 0," +
-                     "user_name TEXT DEFAULT ''," +
-                     "realm TEXT NOT NULL DEFAULT 'mortal'," +
-                     "sub_level INTEGER DEFAULT 1," +
-                     "cultivation INTEGER DEFAULT 0," +
-                     "root_bone INTEGER DEFAULT 10," +
-                     "luck INTEGER DEFAULT 10," +
-                     "spirit INTEGER DEFAULT 10," +
-                     "spirit_stones INTEGER DEFAULT 100," +
-                     "reputation INTEGER DEFAULT 0," +
-                     "last_cultivate_time TEXT DEFAULT ''," +
-                     "last_checkin_date TEXT DEFAULT ''," +
-                     "is_injured INTEGER DEFAULT 0," +
-                     "injury_until TEXT DEFAULT ''," +
-                     "has_reborn INTEGER DEFAULT 0," +
-                     "created_at TEXT DEFAULT ''," +
-                     "PRIMARY KEY (user_id, group_id))")) {
+                 PreparedStatement stmt = conn.prepareStatement(cultivationUsersDdl())) {
                 stmt.execute();
                 tableReady = true;
             } catch (Exception e) {
@@ -108,27 +76,6 @@ public class CultivationTool {
         }
     }
 
-    private int getRealmIndex(String realm) {
-        for (int i = 0; i < REALMS.length; i++) {
-            if (REALMS[i][0].equals(realm)) return i;
-        }
-        return 0;
-    }
-
-    private String realmDisplayName(String realm, int subLevel) {
-        int idx = getRealmIndex(realm);
-        return REALMS[idx][1] + "·" + SUB_LEVEL_NAMES[subLevel];
-    }
-
-    private int getBaseCultivationCost(int realmIdx, int subLevel) {
-        int base = Integer.parseInt(REALMS[realmIdx][2]);
-        return (int) (base * Math.pow(1.5, (realmIdx * 4 + subLevel - 1)));
-    }
-
-    private double realmCoeff(String realm) {
-        return REALM_COEFF[getRealmIndex(realm)];
-    }
-
     private String now() {
         return LocalDateTime.now().format(ISO_FMT);
     }
@@ -153,10 +100,13 @@ public class CultivationTool {
                 u.spiritStones = rs.getInt("spirit_stones");
                 u.reputation = rs.getInt("reputation");
                 u.lastCultivateTime = rs.getString("last_cultivate_time");
+                u.lastDualCultivateTime = rs.getString("last_dual_cultivate_time");
                 u.lastCheckinDate = rs.getString("last_checkin_date");
                 u.isInjured = rs.getInt("is_injured") != 0;
                 u.injuryUntil = rs.getString("injury_until");
                 u.hasReborn = rs.getInt("has_reborn") != 0;
+                u.hasTribulationPill = rs.getInt("has_tribulation_pill") != 0;
+                u.hasRebirthPill = rs.getInt("has_rebirth_pill") != 0;
                 return u;
             }
         }
@@ -167,15 +117,18 @@ public class CultivationTool {
         try (PreparedStatement stmt = conn.prepareStatement(
                 "INSERT INTO cultivation_users (user_id, group_id, user_name, realm, sub_level, " +
                 "cultivation, root_bone, luck, spirit, spirit_stones, reputation, " +
-                "last_cultivate_time, last_checkin_date, is_injured, injury_until, has_reborn, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+                "last_cultivate_time, last_dual_cultivate_time, last_checkin_date, is_injured, injury_until, " +
+                "has_reborn, has_tribulation_pill, has_rebirth_pill, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                 "ON CONFLICT(user_id, group_id) DO UPDATE SET " +
                 "user_name = excluded.user_name, realm = excluded.realm, sub_level = excluded.sub_level, " +
                 "cultivation = excluded.cultivation, root_bone = excluded.root_bone, luck = excluded.luck, " +
                 "spirit = excluded.spirit, spirit_stones = excluded.spirit_stones, " +
                 "reputation = excluded.reputation, last_cultivate_time = excluded.last_cultivate_time, " +
+                "last_dual_cultivate_time = excluded.last_dual_cultivate_time, " +
                 "last_checkin_date = excluded.last_checkin_date, is_injured = excluded.is_injured, " +
-                "injury_until = excluded.injury_until, has_reborn = excluded.has_reborn")) {
+                "injury_until = excluded.injury_until, has_reborn = excluded.has_reborn, " +
+                "has_tribulation_pill = excluded.has_tribulation_pill, has_rebirth_pill = excluded.has_rebirth_pill")) {
             stmt.setLong(1, u.userId);
             stmt.setLong(2, u.groupId);
             stmt.setString(3, u.userName != null ? u.userName : "");
@@ -188,11 +141,14 @@ public class CultivationTool {
             stmt.setInt(10, u.spiritStones);
             stmt.setInt(11, u.reputation);
             stmt.setString(12, u.lastCultivateTime != null ? u.lastCultivateTime : "");
-            stmt.setString(13, u.lastCheckinDate != null ? u.lastCheckinDate : "");
-            stmt.setInt(14, u.isInjured ? 1 : 0);
-            stmt.setString(15, u.injuryUntil != null ? u.injuryUntil : "");
-            stmt.setInt(16, u.hasReborn ? 1 : 0);
-            stmt.setString(17, u.createdAt != null ? u.createdAt : "");
+            stmt.setString(13, u.lastDualCultivateTime != null ? u.lastDualCultivateTime : "");
+            stmt.setString(14, u.lastCheckinDate != null ? u.lastCheckinDate : "");
+            stmt.setInt(15, u.isInjured ? 1 : 0);
+            stmt.setString(16, u.injuryUntil != null ? u.injuryUntil : "");
+            stmt.setInt(17, u.hasReborn ? 1 : 0);
+            stmt.setInt(18, u.hasTribulationPill ? 1 : 0);
+            stmt.setInt(19, u.hasRebirthPill ? 1 : 0);
+            stmt.setString(20, u.createdAt != null ? u.createdAt : "");
             stmt.executeUpdate();
         }
     }
@@ -209,10 +165,13 @@ public class CultivationTool {
         int spiritStones = 100;
         int reputation;
         String lastCultivateTime;
+        String lastDualCultivateTime;
         String lastCheckinDate;
         boolean isInjured;
         String injuryUntil;
         boolean hasReborn;
+        boolean hasTribulationPill;
+        boolean hasRebirthPill;
         String createdAt;
     }
 
@@ -392,7 +351,7 @@ public class CultivationTool {
             if (!accidentMsg.isEmpty()) sb.append(accidentMsg);
 
             int realmIdx = getRealmIndex(user.realm);
-            int cost = getBaseCultivationCost(realmIdx, user.subLevel);
+            int cost = getCultivationCost(realmIdx, user.subLevel);
             if (user.cultivation >= cost && user.subLevel < 4) {
                 sb.append("\n\n⚡ 修为已满！说\"突破\"来提升小层吧！");
             }
@@ -433,7 +392,7 @@ public class CultivationTool {
                 return "⚡ " + uName + " 已到" + REALMS[realmIdx][1] + "圆满！\n突破至下一大境界需要渡劫！说\"渡劫\"开始天劫试炼！";
             }
 
-            int cost = getBaseCultivationCost(realmIdx, user.subLevel);
+            int cost = getCultivationCost(realmIdx, user.subLevel);
             if (user.cultivation < cost) {
                 int need = cost - user.cultivation;
                 return "📉 " + uName + " 修为不足！\n需要：" + cost + " 修为\n当前：" + user.cultivation + " 修为\n还差：" + need + " 修为\n💡 说\"修炼\"获取修为！";
@@ -449,7 +408,7 @@ public class CultivationTool {
             if (user.subLevel >= 4) {
                 msg += "\n⚡ 已达" + REALMS[realmIdx][1] + "圆满！\n💀 突破至下一大境界需要渡劫！说\"渡劫\"开始天劫试炼！";
             } else {
-                int nextCost = getBaseCultivationCost(realmIdx, user.subLevel);
+                int nextCost = getCultivationCost(realmIdx, user.subLevel);
                 msg += "\n📈 下一层需要：" + nextCost + " 修为";
             }
             return msg;
@@ -489,6 +448,11 @@ public class CultivationTool {
 
             int totalRounds = 3 + realmIdx;
             double baseSuccessRate = 0.60 + user.luck * 0.02;
+            boolean usedTribulationPill = user.hasTribulationPill;
+            if (usedTribulationPill) {
+                baseSuccessRate += 0.20;
+                user.hasTribulationPill = false;
+            }
             baseSuccessRate = Math.min(0.90, baseSuccessRate);
 
             ThreadLocalRandom rng = ThreadLocalRandom.current();
@@ -497,6 +461,7 @@ public class CultivationTool {
             sb.append("目标：").append(REALMS[realmIdx][1]).append(" → ").append(REALMS[realmIdx + 1][1]).append("\n");
             sb.append("天雷轮数：").append(totalRounds).append(" 轮\n");
             sb.append("每轮成功率：").append(String.format("%.0f", baseSuccessRate * 100)).append("%\n");
+            if (usedTribulationPill) sb.append("💊 渡劫丹生效：气运+20%！\n");
             sb.append("━━━━━━━━━━━━━━\n");
 
             int passedRounds = 0;
@@ -524,25 +489,10 @@ public class CultivationTool {
                 String newRealm = realmDisplayName(user.realm, user.subLevel);
                 sb.append("🎉 渡劫成功！\n").append(oldRealm).append(" → ").append(newRealm).append("\n\n💪 恭喜踏入新境界！修仙之路更进一步！");
             } else {
-                boolean reincarnate = rng.nextDouble() < 0.80;
-                if (reincarnate) {
-                    int oldRootBone = user.rootBone;
-                    int retainedRoot = (int) Math.ceil(user.rootBone * 0.5);
-                    user.realm = "mortal";
-                    user.subLevel = 1;
-                    user.cultivation = 0;
-                    user.rootBone = retainedRoot;
-                    user.reputation = 0;
-                    user.hasReborn = true;
-                    saveUser(conn, user);
-                    sb.append("💀 身死道消...进入转世重修...\n\n");
-                    sb.append("━━━━━━━━━━━━━━\n");
-                    sb.append("🔄 修为归零，境界重置为凡人\n");
-                    sb.append("🦴 根骨保留50%：").append(oldRootBone).append(" → ").append(retainedRoot).append("\n");
-                    sb.append("💎 灵石和宗门关系保留\n");
-                    sb.append("🌟 获得「轮回印记」：修炼效率+20%\n");
-                    sb.append("━━━━━━━━━━━━━━\n\n💡 天道轮回，重新开始！说\"修仙\"再次踏上修仙之路！");
-                } else {
+                boolean hasRebirthPill = user.hasRebirthPill;
+                user.hasRebirthPill = false;
+
+                if (hasRebirthPill) {
                     int dropLevels = rng.nextInt(1, 3);
                     int newRealmIdx = Math.max(0, realmIdx - dropLevels);
                     user.realm = REALMS[newRealmIdx][0];
@@ -551,7 +501,37 @@ public class CultivationTool {
                     user.isInjured = true;
                     user.injuryUntil = LocalDateTime.now().plusHours(1).format(ISO_FMT);
                     saveUser(conn, user);
-                    sb.append("💔 渡劫失败，重伤掉境！\n当前境界：").append(realmDisplayName(user.realm, user.subLevel)).append("\n💊 重伤持续1小时，可使用疗伤丹恢复");
+                    sb.append("💊 还魂丹生效！免于转世重修！\n💔 但渡劫失败，重伤掉境...\n当前境界：").append(realmDisplayName(user.realm, user.subLevel)).append("\n💊 重伤持续1小时，可使用疗伤丹恢复");
+                } else {
+                    boolean reincarnate = rng.nextDouble() < 0.80;
+                    if (reincarnate) {
+                        int oldRootBone = user.rootBone;
+                        int retainedRoot = (int) Math.ceil(user.rootBone * 0.5);
+                        user.realm = "mortal";
+                        user.subLevel = 1;
+                        user.cultivation = 0;
+                        user.rootBone = retainedRoot;
+                        user.reputation = 0;
+                        user.hasReborn = true;
+                        saveUser(conn, user);
+                        sb.append("💀 身死道消...进入转世重修...\n\n");
+                        sb.append("━━━━━━━━━━━━━━\n");
+                        sb.append("🔄 修为归零，境界重置为凡人\n");
+                        sb.append("🦴 根骨保留50%：").append(oldRootBone).append(" → ").append(retainedRoot).append("\n");
+                        sb.append("💎 灵石和宗门关系保留\n");
+                        sb.append("🌟 获得「轮回印记」：修炼效率+20%\n");
+                        sb.append("━━━━━━━━━━━━━━\n\n💡 天道轮回，重新开始！说\"修仙\"再次踏上修仙之路！");
+                    } else {
+                        int dropLevels = rng.nextInt(1, 3);
+                        int newRealmIdx = Math.max(0, realmIdx - dropLevels);
+                        user.realm = REALMS[newRealmIdx][0];
+                        user.subLevel = Math.max(1, user.subLevel - rng.nextInt(1, 3));
+                        user.cultivation = user.cultivation / 2;
+                        user.isInjured = true;
+                        user.injuryUntil = LocalDateTime.now().plusHours(1).format(ISO_FMT);
+                        saveUser(conn, user);
+                        sb.append("💔 渡劫失败，重伤掉境！\n当前境界：").append(realmDisplayName(user.realm, user.subLevel)).append("\n💊 重伤持续1小时，可使用疗伤丹恢复");
+                    }
                 }
             }
             return sb.toString();
@@ -582,7 +562,7 @@ public class CultivationTool {
             if (user == null) return "🤔 " + uName + " 你还没开启修仙之路！说\"修仙\"开始吧~";
 
             int realmIdx = getRealmIndex(user.realm);
-            int nextCost = getBaseCultivationCost(realmIdx, user.subLevel);
+            int nextCost = getCultivationCost(realmIdx, user.subLevel);
             String realmFull = realmDisplayName(user.realm, user.subLevel);
 
             StringBuilder sb = new StringBuilder();
@@ -600,6 +580,8 @@ public class CultivationTool {
             sb.append("━━━━━━━━━━━━━━\n");
             if (user.isInjured) sb.append("💔 状态：重伤中（修炼效率-50%）\n");
             if (user.hasReborn) sb.append("🌟 轮回印记：修炼效率+20%\n");
+            if (user.hasTribulationPill) sb.append("💊 持有渡劫丹（下次渡劫气运+20%）\n");
+            if (user.hasRebirthPill) sb.append("💊 持有还魂丹（渡劫失败免转世）\n");
 
             return sb.toString();
         } catch (Exception e) {
@@ -831,5 +813,12 @@ public class CultivationTool {
         do { i2 = rng.nextInt(count); } while (i2 == i1);
         do { i3 = rng.nextInt(count); } while (i3 == i1 || i3 == i2);
         return new int[][]{{i1}, {i2}, {i3}};
+    }
+
+    // ==================== 共享工具方法 ====================
+
+    static int getCultivationCost(int realmIdx, int subLevel) {
+        int base = Integer.parseInt(REALMS[realmIdx][2]);
+        return Math.max(MIN_CULTIVATION_COST, (int) (base * Math.pow(1.5, (realmIdx * 4 + subLevel - 1))));
     }
 }

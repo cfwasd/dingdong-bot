@@ -1,4 +1,4 @@
-# NapCat Java SDK
+﻿# DingDong Java SDK
 
 基于 [NapCat](https://github.com/NapNeko/NapCatQQ) OneBot11 协议的 Java Bot 开发框架，集成 AI Agent 能力，支持注解驱动与接口驱动两种编程模型。
 
@@ -78,7 +78,7 @@ public class HelloBot {
 ```xml
 <dependency>
     <groupId>com.napcat</groupId>
-    <artifactId>napcat-spring-boot-starter</artifactId>
+    <artifactId>dingdong-boot-starter</artifactId>
     <version>1.0.0</version>
 </dependency>
 ```
@@ -170,7 +170,7 @@ agent-wechat 容器只能读到挂载到容器内的路径（默认 `/data` 或 
 
 ## 功能特性
 
-- **多协议接入**：QQ 走 NapCat OneBot11；微信走 [agent-wechat](https://github.com/thisnick/agent-wechat) REST API（轮询拉聊天/消息，支持文本/图片/文件发送）
+- **多协议接入**：QQ 走 DingDong OneBot11；微信走 [agent-wechat](https://github.com/thisnick/agent-wechat) REST API（轮询拉聊天/消息，支持文本/图片/文件发送）
 - **全协议通信**：支持 HTTP Server / Client、WebSocket Server / Client 四种 NapCat 通信方式
 - **双编程模型**：注解式（`@OnGroupMessage`、`@Command`）与接口式（`EventHandler`、`CommandHandler`）并存
 - **OneBot11 完整模型**：消息链（MessageChain）、事件、API 请求/响应全覆盖；支持 array / string（CQ 码）双格式上报解析

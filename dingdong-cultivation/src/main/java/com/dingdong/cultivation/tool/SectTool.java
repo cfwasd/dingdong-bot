@@ -12,6 +12,8 @@ import java.sql.ResultSet;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
+import static com.dingdong.cultivation.CultivationConstants.*;
+
 @Slf4j
 @Component
 public class SectTool {
@@ -20,8 +22,6 @@ public class SectTool {
     private volatile boolean tableReady;
 
     private static final DateTimeFormatter ISO_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
-    private static final int CREATE_SECT_COST = 500;
-    private static final int MIN_REALM_FOR_CREATE = 3;
 
     public SectTool(DbManager dbManager) {
         this.dbManager = dbManager;
@@ -32,6 +32,9 @@ public class SectTool {
         synchronized (this) {
             if (tableReady) return;
             try (Connection conn = dbManager.getConnection()) {
+                try (PreparedStatement stmt = conn.prepareStatement(cultivationUsersDdl())) {
+                    stmt.execute();
+                }
                 try (PreparedStatement stmt = conn.prepareStatement(
                         "CREATE TABLE IF NOT EXISTS sects (" +
                         "id INTEGER PRIMARY KEY AUTOINCREMENT," +
@@ -70,14 +73,6 @@ public class SectTool {
         return LocalDateTime.now().format(ISO_FMT);
     }
 
-    private int getRealmIndex(String realm) {
-        String[] realms = {"mortal", "lianqi", "zhuji", "jindan", "yuanying", "huashen", "dujie", "dacheng", "zhenxian"};
-        for (int i = 0; i < realms.length; i++) {
-            if (realms[i].equals(realm)) return i;
-        }
-        return 0;
-    }
-
     private boolean isCultivator(Connection conn, long userId, long groupId) throws Exception {
         try (PreparedStatement stmt = conn.prepareStatement(
                 "SELECT 1 FROM cultivation_users WHERE user_id = ? AND group_id = ?")) {
@@ -95,11 +90,6 @@ public class SectTool {
             ResultSet rs = stmt.executeQuery();
             return rs.next() ? rs.getString("realm") : "mortal";
         }
-    }
-
-    private int getLevelUpCost(int currentLevel) {
-        int[] costs = {0, 0, 500, 1200, 2500, 4500, 7000, 10000, 14000, 20000};
-        return currentLevel < costs.length ? costs[currentLevel] : 99999;
     }
 
     @Tool(name = "create_sect", description = "创建宗门。金丹期以上+500灵石。当用户说\"创建宗门\"\"建立宗门\"\"开宗立派\"时使用。")
@@ -126,7 +116,7 @@ public class SectTool {
             }
 
             String realm = getUserRealm(conn, userId, groupId);
-            if (getRealmIndex(realm) < MIN_REALM_FOR_CREATE) {
+            if (getRealmIndex(realm) < MIN_REALM_FOR_SECT) {
                 return "❌ 创建宗门需要金丹期以上！当前境界不足。";
             }
 

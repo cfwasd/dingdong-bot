@@ -12,23 +12,40 @@ import java.sql.ResultSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static com.dingdong.cultivation.CultivationConstants.*;
+
 @Slf4j
 @Component
 public class PillShopTool {
 
     private final DbManager dbManager;
+    private volatile boolean tableReady;
 
     private static final Map<String, PillInfo> PILLS = new LinkedHashMap<>();
     static {
         PILLS.put("培元丹", new PillInfo("培元丹", 50, "修为+小", "服用后获得根骨×境界系数×3的修为"));
         PILLS.put("筑基丹", new PillInfo("筑基丹", 200, "修为+中", "服用后获得根骨×境界系数×8的修为"));
-        PILLS.put("渡劫丹", new PillInfo("渡劫丹", 300, "渡劫辅助", "渡劫时临时气运+20%（单次渡劫有效）"));
+        PILLS.put("渡劫丹", new PillInfo("渡劫丹", 300, "渡劫辅助", "下次渡劫时气运+20%（一次性，自动使用）"));
         PILLS.put("疗伤丹", new PillInfo("疗伤丹", 150, "疗伤", "重伤立即恢复"));
-        PILLS.put("还魂丹", new PillInfo("还魂丹", 1000, "免死", "渡劫失败免转世（仅重伤掉境）"));
+        PILLS.put("还魂丹", new PillInfo("还魂丹", 1000, "免死", "渡劫失败时免转世重修（一次性，自动触发）"));
     }
 
     public PillShopTool(DbManager dbManager) {
         this.dbManager = dbManager;
+    }
+
+    private void ensureTable() {
+        if (tableReady) return;
+        synchronized (this) {
+            if (tableReady) return;
+            try (Connection conn = dbManager.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(cultivationUsersDdl())) {
+                stmt.execute();
+                tableReady = true;
+            } catch (Exception e) {
+                log.error("Failed to create cultivation_users table", e);
+            }
+        }
     }
 
     @Tool(name = "pill_shop", description = "查看丹药商店。当用户说\"丹药商店\"\"有什么丹药\"\"买丹药\"时使用。")
@@ -59,7 +76,7 @@ public class PillShopTool {
 
         String uName = (userName != null && !userName.isBlank()) ? userName : String.valueOf(userId);
 
-        PillInfo pill = PILLS.get(pillName);
+        ensureTable();        PillInfo pill = PILLS.get(pillName);
         if (pill == null) {
             StringBuilder hint = new StringBuilder("❌ 没有「" + pillName + "」这种丹药！\n\n可选丹药：\n");
             for (String name : PILLS.keySet()) hint.append("• ").append(name).append("\n");
@@ -68,16 +85,26 @@ public class PillShopTool {
 
         try (Connection conn = dbManager.getConnection()) {
             int realmIdx = 0, rootBone = 10;
-            String realm = "mortal";
+            boolean hasTribulationPill = false, hasRebirthPill = false;
             try (PreparedStatement stmt = conn.prepareStatement(
-                    "SELECT realm, root_bone FROM cultivation_users WHERE user_id = ? AND group_id = ?")) {
+                    "SELECT realm, root_bone, has_tribulation_pill, has_rebirth_pill FROM cultivation_users WHERE user_id = ? AND group_id = ?")) {
                 stmt.setLong(1, userId);
                 stmt.setLong(2, groupId);
                 ResultSet rs = stmt.executeQuery();
                 if (!rs.next()) return "🤔 " + uName + " 你还没开启修仙之路！说\"修仙\"开始吧~";
-                realm = rs.getString("realm");
+                String realm = rs.getString("realm");
                 rootBone = rs.getInt("root_bone");
                 realmIdx = getRealmIndex(realm);
+                hasTribulationPill = rs.getInt("has_tribulation_pill") != 0;
+                hasRebirthPill = rs.getInt("has_rebirth_pill") != 0;
+            }
+
+            // 渡劫丹/还魂丹不可叠加
+            if (pill.name.equals("渡劫丹") && hasTribulationPill) {
+                return "❌ " + uName + " 你已经持有渡劫丹了！渡劫时自动使用。";
+            }
+            if (pill.name.equals("还魂丹") && hasRebirthPill) {
+                return "❌ " + uName + " 你已经持有还魂丹了！渡劫失败时自动触发。";
             }
 
             int stones;
@@ -102,10 +129,9 @@ public class PillShopTool {
             }
 
             String effect;
-            double[] coeffs = {1.0, 1.2, 1.5, 1.8, 2.2, 2.6, 3.0, 3.5, 4.0};
             switch (pill.name) {
                 case "培元丹" -> {
-                    int gain = (int) (rootBone * coeffs[realmIdx] * 3);
+                    int gain = (int) (rootBone * REALM_COEFF[realmIdx] * 3);
                     try (PreparedStatement stmt = conn.prepareStatement(
                             "UPDATE cultivation_users SET cultivation = cultivation + ? WHERE user_id = ? AND group_id = ?")) {
                         stmt.setInt(1, gain);
@@ -116,7 +142,7 @@ public class PillShopTool {
                     effect = "修为+" + gain;
                 }
                 case "筑基丹" -> {
-                    int gain = (int) (rootBone * coeffs[realmIdx] * 8);
+                    int gain = (int) (rootBone * REALM_COEFF[realmIdx] * 8);
                     try (PreparedStatement stmt = conn.prepareStatement(
                             "UPDATE cultivation_users SET cultivation = cultivation + ? WHERE user_id = ? AND group_id = ?")) {
                         stmt.setInt(1, gain);
@@ -126,7 +152,15 @@ public class PillShopTool {
                     }
                     effect = "修为+" + gain;
                 }
-                case "渡劫丹" -> effect = "渡劫时临时气运+20%（在下次渡劫时自动生效）";
+                case "渡劫丹" -> {
+                    try (PreparedStatement stmt = conn.prepareStatement(
+                            "UPDATE cultivation_users SET has_tribulation_pill = 1 WHERE user_id = ? AND group_id = ?")) {
+                        stmt.setLong(1, userId);
+                        stmt.setLong(2, groupId);
+                        stmt.executeUpdate();
+                    }
+                    effect = "下次渡劫时气运+20%（自动使用）";
+                }
                 case "疗伤丹" -> {
                     try (PreparedStatement stmt = conn.prepareStatement(
                             "UPDATE cultivation_users SET is_injured = 0, injury_until = '' WHERE user_id = ? AND group_id = ?")) {
@@ -136,7 +170,15 @@ public class PillShopTool {
                     }
                     effect = "重伤已恢复！";
                 }
-                case "还魂丹" -> effect = "渡劫失败时自动触发，免转世（仅重伤掉境）";
+                case "还魂丹" -> {
+                    try (PreparedStatement stmt = conn.prepareStatement(
+                            "UPDATE cultivation_users SET has_rebirth_pill = 1 WHERE user_id = ? AND group_id = ?")) {
+                        stmt.setLong(1, userId);
+                        stmt.setLong(2, groupId);
+                        stmt.executeUpdate();
+                    }
+                    effect = "渡劫失败时自动触发，免转世（仅重伤掉境）";
+                }
                 default -> effect = "丹药已使用";
             }
 
@@ -148,14 +190,6 @@ public class PillShopTool {
             log.error("buy_pill failed", e);
             return "❌ 购买失败，丹炉炸了...";
         }
-    }
-
-    private int getRealmIndex(String realm) {
-        String[] realms = {"mortal", "lianqi", "zhuji", "jindan", "yuanying", "huashen", "dujie", "dacheng", "zhenxian"};
-        for (int i = 0; i < realms.length; i++) {
-            if (realms[i].equals(realm)) return i;
-        }
-        return 0;
     }
 
     private record PillInfo(String name, int price, String type, String description) {}

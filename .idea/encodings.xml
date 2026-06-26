@@ -1,6 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="Encoding">
+    <file url="file://$PROJECT_DIR$/dingdong-admin/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-admin/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-agent/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-agent/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-boot-starter/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-boot-starter/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-channel-api/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-channel-api/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-core/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-core/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-cultivation/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-cultivation/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-llm-providers/dingdong-llm-anthropic/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-llm-providers/dingdong-llm-anthropic/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-llm-providers/dingdong-llm-ollama/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-llm-providers/dingdong-llm-ollama/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-llm-providers/dingdong-llm-openai/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-llm-providers/dingdong-llm-openai/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-qqofficial/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/dingdong-qqofficial/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/napcat-admin/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/napcat-admin/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/napcat-agent/src/main/java" charset="UTF-8" />
@@ -19,5 +39,7 @@
     <file url="file://$PROJECT_DIR$/napcat-wechat/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
+    <file url="file://$APPLICATION_HOME_DIR$/src/main/java" charset="UTF-8" />
+    <file url="file://$APPLICATION_HOME_DIR$/src/main/resources" charset="UTF-8" />
   </component>
 </project>

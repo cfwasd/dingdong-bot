@@ -12,6 +12,8 @@ import com.dingdong.cultivation.tool.SectTool;
 import com.dingdong.cultivation.tool.PillShopTool;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
 public class CultivationBot {
 
@@ -150,15 +152,14 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        String text = getPlainText(event);
+        long targetId = resolveMentionTargetId(event);
         String targetName = "";
-        long targetId = 0;
-        if (text != null) {
-            String arg = extractArg(text, "切磋");
-            if (arg.startsWith("@")) {
-                arg = arg.substring(1).trim();
+        if (targetId == 0) {
+            String text = getPlainText(event);
+            if (text != null) {
+                String arg = extractArg(text, "切磋");
+                if (!arg.isEmpty()) targetName = arg;
             }
-            targetName = arg;
         }
         return cultivationTool.sparInitiate(
             String.valueOf(userId), String.valueOf(groupId), userName,
@@ -219,7 +220,7 @@ public class CultivationBot {
     public String kickMember(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
-        long targetId = 0;
+        long targetId = resolveMentionTargetId(event);
         return sectTool.kickMember(
             String.valueOf(userId), String.valueOf(groupId), String.valueOf(targetId));
     }
@@ -314,5 +315,29 @@ public class CultivationBot {
             return trimmed.substring(("/" + cmdPrefix).length()).trim();
         }
         return "";
+    }
+
+    private long resolveMentionTargetId(ChannelEvent event) {
+        if (event instanceof MessageEvent me) {
+            try {
+                List<Long> ats = me.getMessage().getAts();
+                if (ats != null && !ats.isEmpty()) return ats.get(0);
+            } catch (Exception ignored) {}
+        }
+        if (event instanceof ChannelMessageEvent chMsg) {
+            String text = chMsg.getPlainText();
+            if (text != null) {
+                int start = text.indexOf("<@");
+                if (start >= 0) {
+                    int end = text.indexOf(">", start);
+                    if (end > start + 2) {
+                        try {
+                            return Long.parseLong(text.substring(start + 2, end));
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+            }
+        }
+        return 0;
     }
 }

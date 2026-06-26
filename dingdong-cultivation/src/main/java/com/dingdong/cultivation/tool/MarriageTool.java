@@ -10,7 +10,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+
+import static com.dingdong.cultivation.CultivationConstants.*;
 
 @Slf4j
 @Component
@@ -20,6 +24,7 @@ public class MarriageTool {
     private volatile boolean tableReady;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter ISO_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
     public MarriageTool(DbManager dbManager) {
         this.dbManager = dbManager;
@@ -29,8 +34,11 @@ public class MarriageTool {
         if (tableReady) return;
         synchronized (this) {
             if (tableReady) return;
-            try (Connection conn = dbManager.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(
+            try (Connection conn = dbManager.getConnection()) {
+                try (PreparedStatement cu = conn.prepareStatement(cultivationUsersDdl())) {
+                    cu.execute();
+                }
+                try (PreparedStatement stmt = conn.prepareStatement(
                      "CREATE TABLE IF NOT EXISTS marriages (" +
                      "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                      "group_id INTEGER NOT NULL DEFAULT 0," +
@@ -54,10 +62,17 @@ public class MarriageTool {
                 }
 
                 tableReady = true;
+                } catch (Exception e) {
+                    log.error("Failed to create marriages table", e);
+                }
             } catch (Exception e) {
                 log.error("Failed to create marriages table", e);
             }
         }
+    }
+
+    private String now() {
+        return LocalDateTime.now().format(ISO_FMT);
     }
 
     @Tool(
@@ -287,9 +302,8 @@ public class MarriageTool {
                 }
             }
 
-            String displayName = isSelf ? uName : uName;
             StringBuilder sb = new StringBuilder();
-            sb.append("💕 ").append(displayName).append(" 的CP状态\n\n");
+            sb.append("💕 ").append(uName).append(" 的CP状态\n\n");
             sb.append("━━━━━━━━━━━━━━\n");
             sb.append("💍 伴侣：").append(info.partnerName).append("\n");
             sb.append("📅 结婚日期：").append(info.marriedAt).append("\n");
@@ -420,9 +434,10 @@ public class MarriageTool {
             int selfRoot = 10, partnerRoot = 10;
             int selfRealmIdx = 0, partnerRealmIdx = 0;
             int selfSubLevel = 1, partnerSubLevel = 1;
+            String selfDualTime = null, partnerDualTime = null;
 
             try (PreparedStatement stmt = conn.prepareStatement(
-                    "SELECT root_bone, realm, sub_level FROM cultivation_users WHERE user_id = ? AND group_id = ?")) {
+                    "SELECT root_bone, realm, sub_level, last_dual_cultivate_time FROM cultivation_users WHERE user_id = ? AND group_id = ?")) {
                 stmt.setLong(1, userId);
                 stmt.setLong(2, groupId);
                 ResultSet rs = stmt.executeQuery();
@@ -431,11 +446,12 @@ public class MarriageTool {
                     selfRoot = rs.getInt("root_bone");
                     selfRealmIdx = getRealmIndex(rs.getString("realm"));
                     selfSubLevel = rs.getInt("sub_level");
+                    selfDualTime = rs.getString("last_dual_cultivate_time");
                 }
             }
 
             try (PreparedStatement stmt = conn.prepareStatement(
-                    "SELECT root_bone, realm, sub_level FROM cultivation_users WHERE user_id = ? AND group_id = ?")) {
+                    "SELECT root_bone, realm, sub_level, last_dual_cultivate_time FROM cultivation_users WHERE user_id = ? AND group_id = ?")) {
                 stmt.setLong(1, partnerId);
                 stmt.setLong(2, groupId);
                 ResultSet rs = stmt.executeQuery();
@@ -444,6 +460,7 @@ public class MarriageTool {
                     partnerRoot = rs.getInt("root_bone");
                     partnerRealmIdx = getRealmIndex(rs.getString("realm"));
                     partnerSubLevel = rs.getInt("sub_level");
+                    partnerDualTime = rs.getString("last_dual_cultivate_time");
                 }
             }
 
@@ -455,19 +472,41 @@ public class MarriageTool {
                 return sb.toString();
             }
 
+            // CD检查：任一方未冷却则阻止
+            long remainMinutes = 0;
+            for (String dt : new String[]{selfDualTime, partnerDualTime}) {
+                if (dt != null && !dt.isEmpty()) {
+                    try {
+                        LocalDateTime lastTime = LocalDateTime.parse(dt, ISO_FMT);
+                        long mins = ChronoUnit.MINUTES.between(lastTime, LocalDateTime.now());
+                        long remain = 1440 - mins; // 24h = 1440min
+                        if (remain > 0 && remain > remainMinutes) remainMinutes = remain;
+                    } catch (Exception ignored) {}
+                }
+            }
+            if (remainMinutes > 0) {
+                long hours = remainMinutes / 60;
+                long mins = remainMinutes % 60;
+                String remainStr = hours > 0 ? hours + "小时" + mins + "分钟" : mins + "分钟";
+                return "⏳ 双修冷却中...还需等待 " + remainStr + "\n💡 双修CD为24小时，耐心等待吧~";
+            }
+
             int avgRoot = (selfRoot + partnerRoot) / 2;
             int totalSubLevels = (selfRealmIdx * 4 + selfSubLevel) + (partnerRealmIdx * 4 + partnerSubLevel);
             int gain = avgRoot * 3 + totalSubLevels * 2;
 
+            String dualTime = now();
             try (PreparedStatement stmt = conn.prepareStatement(
-                    "UPDATE cultivation_users SET cultivation = cultivation + ? WHERE user_id = ? AND group_id = ?")) {
+                    "UPDATE cultivation_users SET cultivation = cultivation + ?, last_dual_cultivate_time = ? WHERE user_id = ? AND group_id = ?")) {
                 stmt.setInt(1, gain);
-                stmt.setLong(2, userId);
-                stmt.setLong(3, groupId);
+                stmt.setString(2, dualTime);
+                stmt.setLong(3, userId);
+                stmt.setLong(4, groupId);
                 stmt.executeUpdate();
                 stmt.setInt(1, gain);
-                stmt.setLong(2, partnerId);
-                stmt.setLong(3, groupId);
+                stmt.setString(2, dualTime);
+                stmt.setLong(3, partnerId);
+                stmt.setLong(4, groupId);
                 stmt.executeUpdate();
             }
 
@@ -516,13 +555,5 @@ public class MarriageTool {
             }
         }
         return null;
-    }
-
-    private int getRealmIndex(String realm) {
-        String[] realms = {"mortal", "lianqi", "zhuji", "jindan", "yuanying", "huashen", "dujie", "dacheng", "zhenxian"};
-        for (int i = 0; i < realms.length; i++) {
-            if (realms[i].equals(realm)) return i;
-        }
-        return 0;
     }
 }

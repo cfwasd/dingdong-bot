@@ -1,10 +1,10 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-NapCat Java SDK is a multi-module Maven project providing a Java Bot development framework based on NapCat (OneBot11 protocol), with integrated AI Agent capabilities.
+DingDong Java SDK is a multi-module Maven project providing a Java Bot development framework based on NapCat (OneBot11 protocol), with integrated AI Agent capabilities.
 
 ## Prerequisites
 
@@ -41,8 +41,8 @@ mvn test -pl napcat-spring-boot-starter -Dtest=AgentWechatClientTest
 - `napcat-core`: OneBot11 protocol implementation, communication adapters (HTTP/WS client/server), event routing, SQLite persistence (`DbManager`, `ScheduleStore`).
 - `napcat-agent`: LLM Agent engine. Contains `NapCatAgent` (ReAct loop), `ToolRegistry`, session management, and the persistent memory subsystem (`MemoryStore`, `MemoryExtractor`, `DailyMemorySummarizer`).
 - `napcat-llm-providers`: OpenAI-compatible, Anthropic Claude, and Ollama provider implementations. All implement `LlmProvider`.
-- `napcat-spring-boot-starter`: Auto-configuration (`NapCatAutoConfiguration`) that wires everything together, including adapter selection based on `napcat.adapter.type`. Also hosts the WeChat integration (`AgentWechatClient`, `AgentWechatPoller`, `WechatIdMapper`) under `com.napcat.starter.wechat`.
-- `napcat-admin`: Example Spring Boot application. Add bot classes here under `com.napcat.admin.bot`. Main class: `com.napcat.admin.NapCatApplication`.
+- `napcat-spring-boot-starter`: Auto-configuration (`NapCatAutoConfiguration`) that wires everything together, including adapter selection based on `napcat.adapter.type`. Also hosts the WeChat integration (`AgentWechatClient`, `AgentWechatPoller`, `WechatIdMapper`) under `com.dingdong.boot.starter.wechat`.
+- `napcat-admin`: Example Spring Boot application. Add bot classes here under `com.dingdong.admin.bot`. Main class: `com.dingdong.admin.NapCatApplication`.
 
 ## Key Architecture Patterns
 

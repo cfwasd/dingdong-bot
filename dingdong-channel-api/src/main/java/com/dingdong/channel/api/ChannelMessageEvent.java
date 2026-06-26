@@ -23,4 +23,18 @@ public class ChannelMessageEvent extends ChannelEvent {
     /** 统一的回复 API */
     @JsonIgnore
     private MessageSender api;
+
+    /** 获取用户映射 ID */
+    @JsonIgnore
+    public long getUserId() {
+        return messageTarget != null && messageTarget.getUser() != null
+                ? messageTarget.getUser().getMappedId() : 0;
+    }
+
+    /** 获取群映射 ID（私聊返回 0） */
+    @JsonIgnore
+    public long getGroupId() {
+        return messageTarget != null && messageTarget.getGroup() != null
+                ? messageTarget.getGroup().getMappedId() : 0;
+    }
 }
