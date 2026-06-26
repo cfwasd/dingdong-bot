@@ -95,7 +95,7 @@ public class AnthropicProvider implements LlmProvider {
             }
 
             String json = mapper.writeValueAsString(root);
-            log.error("Anthropic request: {}", json);
+            log.debug("Anthropic request: {}", json);
             RequestBody body = RequestBody.create(json, MediaType.parse("application/json"));
             Request request = new Request.Builder()
                     .url(baseUrl + "/v1/messages")

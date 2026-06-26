@@ -369,16 +369,14 @@ public class NapCatAutoConfiguration {
         mm.register(2, "create memories table", SqliteMemoryStore.memoriesDdl());
         mm.register(3, "set default created_by for existing schedules",
                 "UPDATE schedules SET created_by = 0 WHERE created_by IS NULL");
-        mm.register(4, "add is_recurring column to schedules",
-                "ALTER TABLE schedules ADD COLUMN is_recurring INTEGER DEFAULT 1");
-        mm.register(5, "create memory_summaries table", SqliteMemoryStore.summariesDdl());
-        mm.register(6, "create memory indexes",
+        mm.register(4, "create memory_summaries table", SqliteMemoryStore.summariesDdl());
+        mm.register(5, "create memory indexes",
                 "CREATE INDEX IF NOT EXISTS idx_memories_user_group ON memories(user_id, group_id);" +
                 "CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);" +
                 "CREATE INDEX IF NOT EXISTS idx_summaries_user_group_date ON memory_summaries(user_id, group_id, summary_date);");
-        mm.register(7, "create user_preferences table", VoicePreferenceStore.ddl());
-        mm.register(8, "create group_preferences table", GroupPreferenceStore.ddl());
-        mm.register(9, "create cultivation tables",
+        mm.register(6, "create user_preferences table", VoicePreferenceStore.ddl());
+        mm.register(7, "create group_preferences table", GroupPreferenceStore.ddl());
+        mm.register(8, "create cultivation tables",
             "CREATE TABLE IF NOT EXISTS cultivation_users (" +
             "user_id INTEGER NOT NULL," +
             "group_id INTEGER NOT NULL DEFAULT 0," +

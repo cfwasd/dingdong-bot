@@ -20,7 +20,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(prefix = "dingdong.memory", name = "test-data-enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "dingdong.memory", name = "test-data-enabled", havingValue = "false")
 public class MemoryTestDataInjector {
 
     private final DbManager dbManager;

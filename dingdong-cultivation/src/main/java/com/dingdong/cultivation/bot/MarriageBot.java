@@ -5,6 +5,7 @@ import com.dingdong.channel.api.ChannelMessageEvent;
 import com.dingdong.core.annotation.Command;
 import com.dingdong.core.annotation.OnGroupMessage;
 import com.dingdong.core.annotation.OnPrivateMessage;
+import com.dingdong.core.config.BotProperties;
 import com.dingdong.core.event.GroupMessageEvent;
 import com.dingdong.core.event.MessageEvent;
 import com.dingdong.cultivation.tool.MarriageTool;
@@ -16,15 +17,16 @@ import java.util.List;
 public class MarriageBot {
 
     private final MarriageTool marriageTool;
+    private final BotProperties botProperties;
 
-    public MarriageBot(MarriageTool marriageTool) {
+    public MarriageBot(MarriageTool marriageTool, BotProperties botProperties) {
         this.marriageTool = marriageTool;
+        this.botProperties = botProperties;
     }
 
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/求婚", description = "向TA求婚")
-    @Command(value = "求婚", description = "向TA求婚")
     public String propose(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
@@ -37,7 +39,6 @@ public class MarriageBot {
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/同意求婚", description = "接受求婚")
-    @Command(value = "同意求婚", description = "接受求婚")
     public String accept(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
@@ -49,7 +50,6 @@ public class MarriageBot {
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/离婚", description = "解除婚姻")
-    @Command(value = "离婚", description = "解除婚姻")
     public String divorce(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
@@ -61,7 +61,6 @@ public class MarriageBot {
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/我的CP", description = "查看CP状态")
-    @Command(value = "我的CP", description = "查看CP状态")
     public String cpStatus(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
@@ -73,7 +72,6 @@ public class MarriageBot {
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/双修", description = "道侣双修（24h冷却）")
-    @Command(value = "双修", description = "道侣双修（24h冷却）")
     public String dualCultivate(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
@@ -105,13 +103,34 @@ public class MarriageBot {
     }
 
     private long resolveMentionTargetId(ChannelEvent event) {
+        long selfId = botProperties.getSelfId();
+
+        // OneBot 渠道：从 MessageChain 获取
         if (event instanceof MessageEvent me) {
             try {
                 List<Long> ats = me.getMessage().getAts();
-                if (ats != null && !ats.isEmpty()) return ats.get(0);
+                if (ats != null && !ats.isEmpty()) {
+                    for (Long at : ats) {
+                        if (at != null && at != selfId && at > 0) {
+                            return at;
+                        }
+                    }
+                }
             } catch (Exception ignored) {}
         }
+
+        // QQ 官方 / 通用渠道：从 ChannelMessageEvent.mentions 获取
         if (event instanceof ChannelMessageEvent chMsg) {
+            List<Long> mentions = chMsg.getMentions();
+            if (mentions != null && !mentions.isEmpty()) {
+                for (Long m : mentions) {
+                    if (m != null && m != selfId && m > 0) {
+                        return m;
+                    }
+                }
+            }
+
+            // 备用：从文本解析（QQ 官方已去 @ 时）
             String text = chMsg.getPlainText();
             if (text != null) {
                 int start = text.indexOf("<@");

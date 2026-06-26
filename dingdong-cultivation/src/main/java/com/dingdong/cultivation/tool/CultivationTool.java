@@ -561,6 +561,29 @@ public class CultivationTool {
             CultivationUser user = loadUser(conn, userId, groupId);
             if (user == null) return "🤔 " + uName + " 你还没开启修仙之路！说\"修仙\"开始吧~";
 
+            // 动态计算被动修为收益（离线/后台收益）
+            int passiveGain = 0;
+            if (user.lastCultivateTime != null && !user.lastCultivateTime.isEmpty()) {
+                LocalDateTime lastTime = LocalDateTime.parse(user.lastCultivateTime, ISO_FMT);
+                double hoursPassed = ChronoUnit.MINUTES.between(lastTime, LocalDateTime.now()) / 60.0;
+                hoursPassed = Math.min(hoursPassed, 8.0); // 最多8小时收益
+                if (hoursPassed >= 0.5) { // 超过30分钟才结算
+                    passiveGain = (int) (hoursPassed * user.rootBone * realmCoeff(user.realm) * 0.5);
+                }
+            }
+
+            // 应用加成并更新
+            double bonusMultiplier = 1.0;
+            if (user.hasReborn) bonusMultiplier += 0.2;
+            if (user.isInjured) bonusMultiplier -= 0.5;
+            passiveGain = (int) (passiveGain * bonusMultiplier);
+
+            if (passiveGain > 0) {
+                user.cultivation += passiveGain;
+                user.lastCultivateTime = now(); // 结算后更新时间戳
+                saveUser(conn, user);
+            }
+
             int realmIdx = getRealmIndex(user.realm);
             int nextCost = getCultivationCost(realmIdx, user.subLevel);
             String realmFull = realmDisplayName(user.realm, user.subLevel);
@@ -571,6 +594,7 @@ public class CultivationTool {
             sb.append("🏅 境界：").append(realmFull).append("\n");
             sb.append("💎 修为：").append(user.cultivation).append(" / ").append(nextCost);
             if (user.subLevel >= 4) sb.append("（满，可渡劫）");
+            else if (passiveGain > 0) sb.append("（含离线收益 +").append(passiveGain).append("）");
             sb.append("\n━━━━━━━━━━━━━━\n");
             sb.append("🦴 根骨：").append(user.rootBone).append("（修炼效率）\n");
             sb.append("🍀 气运：").append(user.luck).append("（渡劫/奇遇）\n");

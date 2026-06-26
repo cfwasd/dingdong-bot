@@ -84,7 +84,7 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
         long groupId = (isGroupAt || isGroupFull) ? idMapper.toGroupId(groupOpenid) : 0L;
 
         ChannelMessageEvent msgEvent = buildChannelEvent(event, eventType, userOpenid, groupOpenid,
-                content, userId, groupId);
+                cleanedContent, userId, groupId);
 
         if (eventConsumer != null) eventConsumer.accept(msgEvent);
 
@@ -99,6 +99,7 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
         agentInvoker.chat(userId, groupId, prompt)
                 .thenAccept(reply -> {
                     if (reply != null && !reply.isBlank()) {
+                        log.info("[Agent回复/QQ官方] -> {}", reply.length() > 200 ? reply.substring(0, 200) + "..." : reply);
                         sendReply(eventType, userOpenid, groupOpenid, reply, event.path("id").asText(""));
                     }
                 })
@@ -132,6 +133,55 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
         msgEvent.setMessageId(Math.abs(event.path("id").asText("").hashCode()));
         msgEvent.setPlainText(content);
 
+        // 保存原始 content，供 bot 层后备解析
+        String rawContent = event.path("content").asText("");
+        msgEvent.setRawContent(rawContent);
+
+        // 解析 mentions（原始 JSON 中的 @ 列表）
+        java.util.List<Long> mentionIds = new java.util.ArrayList<>();
+
+        // 第一步：识别 bot 自己的 openid（用于过滤）
+        String botOpenid = null;
+        JsonNode mentionsNode = event.path("mentions");
+        if (mentionsNode.isArray()) {
+            for (JsonNode m : mentionsNode) {
+                boolean isBot = m.path("bot").asBoolean(false) || m.path("is_you").asBoolean(false);
+                if (isBot) {
+                    botOpenid = extractMentionId(m);
+                    log.debug("[QQ官方] 识别到 bot openid: {}", botOpenid);
+                    break;
+                }
+            }
+        }
+
+        // 第二步：从 mentions 数组解析（过滤 bot 自己）
+        if (mentionsNode.isArray()) {
+            for (JsonNode m : mentionsNode) {
+                boolean isBot = m.path("bot").asBoolean(false) || m.path("is_you").asBoolean(false);
+                if (isBot) continue;
+                String mId = extractMentionId(m);
+                if (!mId.isBlank() && !mId.equals(botOpenid)) {
+                    mentionIds.add(idMapper.toUserId(mId));
+                }
+            }
+        }
+
+        // 第三步：从原始 content 中解析 <@!id> / <@id>（过滤 bot 自己）
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("<@!?([^>]+)>").matcher(rawContent);
+        while (matcher.find()) {
+            String atId = matcher.group(1).trim();
+            if (!atId.isBlank() && !atId.equals(botOpenid)) {
+                long mapped = idMapper.toUserId(atId);
+                if (!mentionIds.contains(mapped)) {
+                    mentionIds.add(mapped);
+                }
+            }
+        }
+
+        log.debug("[QQ官方] mentions解析结果: rawContent={}, mentionsNodeSize={}, parsedMentions={}",
+                rawContent, mentionsNode.isArray() ? mentionsNode.size() : 0, mentionIds);
+        msgEvent.setMentions(mentionIds);
+
         ChannelMessageTarget target = new ChannelMessageTarget();
         target.setUser(ChannelIdentity.of("qqofficial", userOpenid, userId));
         if (isGroup) target.setGroup(ChannelIdentity.of("qqofficial", groupOpenid, groupId));
@@ -140,7 +190,7 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
 
         ChannelMessageSender sender = new ChannelMessageSender();
         sender.setUserId(ChannelIdentity.of("qqofficial", userOpenid, userId));
-        sender.setNickname(userOpenid);
+        sender.setNickname(event.path("author").path("username").asText(userOpenid));
         msgEvent.setSender(sender);
 
         msgEvent.setApi(new QqOfficialReplySender(channel, userOpenid, groupOpenid,

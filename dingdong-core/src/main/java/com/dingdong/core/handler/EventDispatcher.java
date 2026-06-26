@@ -53,7 +53,10 @@ public class EventDispatcher {
 
         com.dingdong.core.context.EventContext ctx = com.dingdong.core.context.EventContextHolder.get();
 
-        if (sync) {
+        // 非 OneBot 渠道（如 QQ Official）同步分发，确保 commandHandled 标记在调用方立即可见
+        boolean isSync = sync || !"onebot".equals(event.getChannelId());
+
+        if (isSync) {
             try {
                 registry.dispatch(event);
             } catch (Exception e) {

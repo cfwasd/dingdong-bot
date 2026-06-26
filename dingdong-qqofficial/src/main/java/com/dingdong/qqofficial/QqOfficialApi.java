@@ -38,6 +38,28 @@ public class QqOfficialApi {
     private String baseUrl() { return sandbox ? SANDBOX_URL : BASE_URL; }
     private String authHeader() { return "QQBot " + tokenManager.getToken(); }
 
+    public String getGatewayUrl() throws IOException {
+        Request request = new Request.Builder()
+                .url(baseUrl() + "/gateway")
+                .get()
+                .header("Authorization", authHeader())
+                .header("X-Union-Appid", appId)
+                .build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                throw new IOException("Get gateway failed: " + response.code());
+            }
+            JsonNode json = objectMapper.readTree(response.body().string());
+            String url = json.path("url").asText();
+            if (url == null || url.isBlank()) {
+                throw new IOException("No gateway URL in response: " + json);
+            }
+            return url;
+        }
+    }
+
+    private final java.util.concurrent.atomic.AtomicInteger msgSeqCounter = new java.util.concurrent.atomic.AtomicInteger(0);
+
     public JsonNode sendGroupMessage(String groupOpenid, String content, String msgId) throws IOException {
         return sendMessage("/v2/groups/" + groupOpenid + "/messages", content, msgId);
     }
@@ -47,8 +69,9 @@ public class QqOfficialApi {
     }
 
     private JsonNode sendMessage(String path, String content, String msgId) throws IOException {
+        int seq = msgSeqCounter.incrementAndGet();
         String body = objectMapper.writeValueAsString(
-                Map.of("content", content, "msg_id", msgId, "msg_type", 0));
+                Map.of("content", content, "msg_id", msgId, "msg_seq", seq, "msg_type", 0));
         Request request = new Request.Builder()
                 .url(baseUrl() + path)
                 .post(RequestBody.create(body, MediaType.get("application/json")))
@@ -59,6 +82,33 @@ public class QqOfficialApi {
             String respBody = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
                 throw new IOException("Send message failed: " + response.code() + " " + respBody);
+            }
+            return objectMapper.readTree(respBody);
+        }
+    }
+
+    public JsonNode sendGroupMarkdownMessage(String groupOpenid, String markdownContent, String msgId) throws IOException {
+        return sendMarkdownMessage("/v2/groups/" + groupOpenid + "/messages", markdownContent, msgId);
+    }
+
+    public JsonNode sendC2cMarkdownMessage(String userOpenid, String markdownContent, String msgId) throws IOException {
+        return sendMarkdownMessage("/v2/users/" + userOpenid + "/messages", markdownContent, msgId);
+    }
+
+    private JsonNode sendMarkdownMessage(String path, String markdownContent, String msgId) throws IOException {
+        int seq = msgSeqCounter.incrementAndGet();
+        String body = objectMapper.writeValueAsString(
+                Map.of("markdown", Map.of("content", markdownContent), "msg_id", msgId, "msg_seq", seq, "msg_type", 2));
+        Request request = new Request.Builder()
+                .url(baseUrl() + path)
+                .post(RequestBody.create(body, MediaType.get("application/json")))
+                .header("Authorization", authHeader())
+                .header("X-Union-Appid", appId)
+                .build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                throw new IOException("Send markdown message failed: " + response.code() + " " + respBody);
             }
             return objectMapper.readTree(respBody);
         }
@@ -99,8 +149,9 @@ public class QqOfficialApi {
     }
 
     private void sendMedia(String path, String fileInfo, String msgId) throws IOException {
+        int seq = msgSeqCounter.incrementAndGet();
         String body = objectMapper.writeValueAsString(
-                Map.of("msg_type", 7, "file_info", fileInfo, "msg_id", msgId));
+                Map.of("msg_type", 7, "media", Map.of("file_info", fileInfo), "msg_id", msgId, "msg_seq", seq));
         Request request = new Request.Builder()
                 .url(baseUrl() + path)
                 .post(RequestBody.create(body, MediaType.get("application/json")))

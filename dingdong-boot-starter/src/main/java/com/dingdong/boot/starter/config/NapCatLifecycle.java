@@ -123,7 +123,7 @@ public class NapCatLifecycle implements SmartLifecycle {
             com.dingdong.agent.memory.MemoryTestDataInjector testInjector =
                     ctx.getBeanProvider(com.dingdong.agent.memory.MemoryTestDataInjector.class).getIfAvailable();
             if (testInjector != null) {
-                testInjector.injectTestData();
+//                testInjector.injectTestData();
             }
         } catch (Exception e) {
             log.warn("Failed to start scheduler: {}", e.getMessage());
@@ -168,6 +168,7 @@ public class NapCatLifecycle implements SmartLifecycle {
                                     .build();
                     agent.chat(userId, groupId, prompt, config, processSteps::add)
                             .thenAccept(reply -> {
+                                log.info("[Agent回复] -> {}", reply != null && reply.length() > 200 ? reply.substring(0, 200) + "..." : reply);
                                 if (event instanceof GroupMessageEvent ge) {
                                     ge.reply(reply);
                                 } else if (event instanceof com.dingdong.core.event.PrivateMessageEvent pe) {

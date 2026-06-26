@@ -60,8 +60,12 @@ public class OpenAiProvider implements LlmProvider {
             root.put("temperature", temperature);
 
             ArrayNode messages = root.putArray("messages");
+            // 确保 system 消息始终在最前面（部分 API 要求 system 必须在开头）
+            // 同时合并重复的 system 消息，只保留第一条
+            List<ObjectNode> pendingSystemNodes = new java.util.ArrayList<>();
+            List<ObjectNode> pendingOtherNodes = new java.util.ArrayList<>();
             for (ChatMessage msg : session.getHistory()) {
-                ObjectNode node = messages.addObject();
+                ObjectNode node = mapper.createObjectNode();
                 node.put("role", msg.getRole());
 
                 // 多模态消息：text + image_url array
@@ -101,6 +105,19 @@ public class OpenAiProvider implements LlmProvider {
                         fnNode.put("arguments", tc.getFunction().getArguments());
                     }
                 }
+
+                if ("system".equals(msg.getRole())) {
+                    pendingSystemNodes.add(node);
+                } else {
+                    pendingOtherNodes.add(node);
+                }
+            }
+            // system 消息放最前面，只保留第一条（去重）
+            if (!pendingSystemNodes.isEmpty()) {
+                messages.add(pendingSystemNodes.get(0));
+            }
+            for (ObjectNode node : pendingOtherNodes) {
+                messages.add(node);
             }
 
             if (tools != null && !tools.isEmpty()) {
@@ -131,7 +148,7 @@ public class OpenAiProvider implements LlmProvider {
             }
 
             String json = mapper.writeValueAsString(root);
-            log.error("OpenAI request: {}", json);
+            log.debug("OpenAI request: {}", json);
             RequestBody body = RequestBody.create(json, MediaType.parse("application/json"));
             Request.Builder builder = new Request.Builder()
                     .url(baseUrl + "/chat/completions")
@@ -143,7 +160,7 @@ public class OpenAiProvider implements LlmProvider {
             client.newCall(builder.build()).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, java.io.IOException e) {
-                    log.error("OpenAI request failed", e);
+                    log.debug("OpenAI request failed", e);
                     future.completeExceptionally(e);
                 }
 

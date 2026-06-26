@@ -18,8 +18,8 @@ public class SilentBot {
     @Autowired
     private BotProperties botProperties;
 
-    @Command(value = "/安静", description = "开启/关闭安静模式（3分钟）", silentModeAllowed = true)
-    @Command(value = "/silent", description = "开启/关闭安静模式（3分钟）", silentModeAllowed = true)
+    @Command(value = "/安静", description = "开启/关闭安静模式（3分钟）", silentModeAllowed = true, channels = {"onebot"})
+    @Command(value = "/silent", description = "开启/关闭安静模式（3分钟）", silentModeAllowed = true, channels = {"onebot"})
     @OnGroupMessage
     public String toggleSilent(ChannelEvent event) {
         if (groupPreferenceStore == null) {

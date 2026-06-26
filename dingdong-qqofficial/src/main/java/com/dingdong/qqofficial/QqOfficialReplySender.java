@@ -38,7 +38,14 @@ public class QqOfficialReplySender implements MessageSender {
                 String target = isGroup ? groupOpenid : userOpenid;
                 String normalized = normalizeMarkdownImages(text);
                 String plain = convertMediaMarkers(normalized, target, isGroup, msgId);
-                if (!plain.isBlank()) {
+                if (plain.isBlank()) {
+                    return MessageResult.ok(msgId);
+                }
+                // 自动检测 Markdown 语法，使用 msg_type=2 发送
+                if (containsMarkdown(plain)) {
+                    if (isGroup) channel.getApi().sendGroupMarkdownMessage(groupOpenid, plain, msgId);
+                    else channel.getApi().sendC2cMarkdownMessage(userOpenid, plain, msgId);
+                } else {
                     if (isGroup) channel.getApi().sendGroupMessage(groupOpenid, plain, msgId);
                     else channel.getApi().sendC2cMessage(userOpenid, plain, msgId);
                 }
@@ -82,6 +89,34 @@ public class QqOfficialReplySender implements MessageSender {
 
     @Override
     public boolean isAvailable() { return true; }
+
+    /**
+     * 检测文本是否包含 Markdown 语法标记。
+     * 支持：**粗体**、*斜体*、`代码`、# 标题、- 列表、> 引用、[链接]() 等。
+     */
+    private boolean containsMarkdown(String text) {
+        if (text == null || text.isBlank()) return false;
+        // 常见 Markdown 语法模式
+        String[] patterns = {
+            "\\*\\*[^\\*]+\\*\\*",          // **粗体**
+            "__[^_]+__",                      // __粗体__
+            "`[^`]+`",                        // `代码`
+            "\\*[^\\*\\s][^\\*]*\\*",        // *斜体* (排除 **)
+            "^#{1,6}\\s",                     // # 标题
+            "^\\s*[-*+]\\s",                 // - 列表
+            "^\\s*>\\s",                      // > 引用
+            "!\\[[^\\]]*\\]\\([^)]+\\)",      // ![图片](url)
+            "\\[[^\\]]+\\]\\([^)]+\\)",      // [链接](url)
+            "^\\s*```",                       // ```代码块
+            "~~[^~]+~~",                      // ~~删除线~~
+        };
+        for (String p : patterns) {
+            if (java.util.regex.Pattern.compile(p, java.util.regex.Pattern.MULTILINE).matcher(text).find()) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     private String normalizeMarkdownImages(String text) {
         if (text == null || text.isBlank()) return text;

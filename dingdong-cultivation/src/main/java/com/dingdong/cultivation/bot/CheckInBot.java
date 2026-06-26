@@ -22,7 +22,6 @@ public class CheckInBot {
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/签到", description = "每日签到（修仙者额外修为）")
-    @Command(value = "签到", description = "每日签到（修仙者额外修为）")
     public String checkin(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
@@ -34,7 +33,6 @@ public class CheckInBot {
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/签到状态", description = "签到记录和排名")
-    @Command(value = "签到状态", description = "签到记录和排名")
     public String checkinStatus(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);

@@ -4,8 +4,8 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class NapCatApplication {
+public class DinDongApplication {
     public static void main(String[] args) {
-        SpringApplication.run(NapCatApplication.class, args);
+        SpringApplication.run(DinDongApplication.class, args);
     }
 }

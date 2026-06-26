@@ -370,7 +370,7 @@ public class NapCatAgent {
                         }
 
                         if (errorMsg.contains("API请求错误: 4")) {
-                            log.warn("[Agent] API client error in round {}: {}", round, ex.getMessage());
+                            log.debug("[Agent] API client error in round {}: {}", round, ex.getMessage());
                             String clientErrMsg = "请求参数有误，请检查输入内容或稍后重试。";
                             session.addMessage(new ChatMessage("assistant", clientErrMsg, null));
                             return clientErrMsg;

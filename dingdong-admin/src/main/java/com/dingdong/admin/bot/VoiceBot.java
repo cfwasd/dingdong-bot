@@ -17,7 +17,7 @@ public class VoiceBot {
     @Autowired(required = false)
     private VoicePreferenceStore voicePreferenceStore;
 
-    @Command(value = "/voice", description = "查看/切换语音模式")
+    @Command(value = "/voice", description = "查看/切换语音模式", channels = {"onebot"})
     @OnGroupMessage
     @OnPrivateMessage
     public String voiceStatus(ChannelEvent event) {
@@ -32,7 +32,7 @@ public class VoiceBot {
                 "发 /voice default 切换为默认模式";
     }
 
-    @Command(value = "/voice {mode}", description = "切换语音模式")
+    @Command(value = "/voice {mode}", description = "切换语音模式", channels = {"onebot"})
     @OnGroupMessage
     @OnPrivateMessage
     public String voiceSwitch(ChannelEvent event, @Param("mode") String mode) {

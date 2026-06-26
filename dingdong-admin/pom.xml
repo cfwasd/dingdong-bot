@@ -19,6 +19,14 @@
         </dependency>
         <dependency>
             <groupId>com.napcat</groupId>
+            <artifactId>dingdong-cultivation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.napcat</groupId>
+            <artifactId>dingdong-qqofficial</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.napcat</groupId>
             <artifactId>dingdong-llm-openai</artifactId>
             <optional>true</optional>
         </dependency>
@@ -52,7 +60,7 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <mainClass>com.dingdong.admin.NapCatApplication</mainClass>
+                    <mainClass>com.dingdong.admin.DinDongApplication</mainClass>
                 </configuration>
             </plugin>
         </plugins>

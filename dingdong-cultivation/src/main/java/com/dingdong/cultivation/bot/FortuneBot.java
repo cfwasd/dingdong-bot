@@ -21,7 +21,6 @@ public class FortuneBot {
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/运势", description = "今日运势")
-    @Command(value = "运势", description = "今日运势")
     public String fortune(ChannelEvent event) {
         String name = resolveUserName(event);
         return fortuneTool.fortune(name);

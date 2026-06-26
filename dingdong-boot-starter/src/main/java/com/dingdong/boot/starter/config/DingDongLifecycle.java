@@ -5,6 +5,7 @@ import com.dingdong.core.handler.EventDispatcher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -25,21 +26,29 @@ public class DingDongLifecycle implements SmartLifecycle {
 
     @Override
     public void start() {
-        log.info("DingDong Lifecycle: starting {} channels", channels.size());
+        log.info("══════════ DingDong 启动中 ({}) ══════════", channels.size());
+
+        List<String> started = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
 
         for (BotChannel channel : channels) {
             try {
-                // 绑定事件管道到 EventDispatcher
                 channel.setEventConsumer(eventDispatcher::dispatch);
                 channel.start();
-                log.info("Channel started: {} (connected: {})", channel.getChannelId(), channel.isConnected());
+                started.add(channel.getChannelId());
+                log.info("  ✅ {} 通道启动成功", channel.getChannelId());
             } catch (Exception e) {
-                log.error("Failed to start channel: {}", channel.getChannelId(), e);
+                failed.add(channel.getChannelId());
+                log.error("  ❌ {} 通道启动失败: {}", channel.getChannelId(), e.getMessage());
             }
         }
 
         running = true;
-        log.info("DingDong Lifecycle started");
+        if (started.isEmpty()) {
+            log.warn("⚠️ 没有成功启动任何通道！");
+        } else {
+            log.info("══════════ 启动完成: {} 个通道就绪 ══════════", started.size());
+        }
     }
 
     @Override

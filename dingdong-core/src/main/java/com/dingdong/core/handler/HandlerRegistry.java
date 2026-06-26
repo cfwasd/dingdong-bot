@@ -1,6 +1,7 @@
 package com.dingdong.core.handler;
 
 import com.dingdong.channel.api.ChannelEvent;
+import com.dingdong.channel.api.ChannelMessageEvent;
 import com.dingdong.channel.api.annotation.ChannelRestrict;
 import com.dingdong.core.annotation.*;
 import com.dingdong.core.config.BotProperties;
@@ -166,7 +167,7 @@ public class HandlerRegistry implements BotDispatcher {
                         (event, args) -> invokeMethod(bean, method, event, args),
                         msgFilter, eventType, cmd.silentModeAllowed(), cmd.channels());
                 commands.computeIfAbsent(template, k -> new ArrayList<>()).add(entry);
-                commandHelps.add(new CommandHelp(template, cmd.description(), cmd.adminOnly()));
+                commandHelps.add(new CommandHelp(template, cmd.description(), cmd.adminOnly(), cmd.channels()));
                 log.debug("Registered command handler: {} on method {} type={} silentModeAllowed={}",
                         template, method.getName(), eventType, cmd.silentModeAllowed());
             }
@@ -265,6 +266,7 @@ public class HandlerRegistry implements BotDispatcher {
     private void handleReturnValue(Object result, ChannelEvent event) {
         if (result == null) return;
         if (result instanceof String text) {
+            log.info("[回复] -> {}", text.length() > 200 ? text.substring(0, 200) + "..." : text);
             if (event instanceof MessageEvent msgEvent) {
                 msgEvent.reply(text);
             } else if (event instanceof com.dingdong.channel.api.ChannelMessageEvent chMsg
@@ -276,7 +278,12 @@ public class HandlerRegistry implements BotDispatcher {
                 msgEvent.reply(chain);
             } else if (event instanceof com.dingdong.channel.api.ChannelMessageEvent chMsg
                     && chMsg.getApi() != null) {
-                chMsg.getApi().reply(chain.toAgentPrompt());
+                // 纯 Markdown 消息直接发送内容文本，避免 toAgentPrompt() 的语义化标记
+                if (chain.size() == 1 && chain.get(0) instanceof com.dingdong.core.message.MarkdownSegment md) {
+                    chMsg.getApi().reply(md.getContent());
+                } else {
+                    chMsg.getApi().reply(chain.toAgentPrompt());
+                }
             }
         }
     }
@@ -345,23 +352,37 @@ public class HandlerRegistry implements BotDispatcher {
         }
 
         if (plainText != null) {
-            if (log.isDebugEnabled()) {
-                if (event instanceof GroupMessageEvent groupEvent) {
-                    String senderName = groupEvent.getSender() != null ? groupEvent.getSender().getNickname() : "未知";
-                    log.debug("群聊 [{}] [{}({})] {}", groupEvent.getGroupId(), senderName, groupEvent.getUserId(), plainText);
-                } else if (event instanceof com.dingdong.core.event.PrivateMessageEvent privateEvent) {
-                    String senderName = privateEvent.getSender() != null ? privateEvent.getSender().getNickname() : "未知";
-                    log.debug("私聊 [{}({})] {}", senderName, privateEvent.getUserId(), plainText);
-                } else {
-                    log.debug("渠道消息 [{}] {}", event.getChannelId(), plainText);
-                }
+            if (event instanceof GroupMessageEvent groupEvent) {
+                String senderName = groupEvent.getSender() != null ? groupEvent.getSender().getNickname() : "未知";
+                log.info("[群聊 {}] {}({}) -> {}", groupEvent.getGroupId(), senderName, groupEvent.getUserId(), plainText);
+            } else if (event instanceof com.dingdong.core.event.PrivateMessageEvent privateEvent) {
+                String senderName = privateEvent.getSender() != null ? privateEvent.getSender().getNickname() : "未知";
+                log.info("[私聊] {}({}) -> {}", senderName, privateEvent.getUserId(), plainText);
+            } else {
+                log.info("[渠道消息 {}] {}", event.getChannelId(), plainText);
             }
 
             // 命令匹配逻辑
+            boolean isGroupMsg = event instanceof GroupMessageEvent
+                    || (event instanceof com.dingdong.channel.api.ChannelMessageEvent chMsg
+                        && chMsg.getGroupId() != 0);
+            boolean isAtOrWake = isAtOrWake(event);
+
             for (List<CommandEntry> entries : commands.values()) {
                 for (CommandEntry entry : entries) {
                     CommandHandler.CommandArgs args = matchCommand(entry.template, plainText);
+                    // 如果 plainText 不以命令前缀开头，尝试加上前缀再匹配
+                    // 解决 QQ Official 等渠道去掉 @ 后只剩下 "修仙菜单" 而模板是 "/修仙菜单" 的情况
+                    if (args == null && !plainText.startsWith(properties.getCommandPrefix())) {
+                        args = matchCommand(entry.template, properties.getCommandPrefix() + plainText);
+                    }
                     if (args != null) {
+                        // 群聊场景：命令需要 @ 或唤醒词（/help 和 silentModeAllowed 命令除外）
+                        if (isGroupMsg && !isAtOrWake
+                                && !entry.isSilentModeAllowed()) {
+                            log.debug("群聊命令需@或唤醒词: {}", entry.template);
+                            continue;
+                        }
                         // 安静模式下：跳过不允许的命令
                         if (silentActive && !entry.isSilentModeAllowed()) {
                             log.debug("安静模式下跳过命令: {}", entry.template);
@@ -372,7 +393,7 @@ public class HandlerRegistry implements BotDispatcher {
                             log.debug("渠道限制跳过命令: {} (channel={})", entry.template, event.getChannelId());
                             continue;
                         }
-                        log.debug("命令匹配: 模板='{}', 消息='{}'", entry.template, plainText);
+                        log.info("命令匹配: 模板='{}', 消息='{}'", entry.template, plainText);
                         try {
                             if (event instanceof MessageEvent msgEvent) {
                                 entry.handler.accept(msgEvent, args);
@@ -498,6 +519,15 @@ public class HandlerRegistry implements BotDispatcher {
             i = end + 1;
         }
         regex.append("$");
+
+        // 模板没有参数占位符时，支持前缀匹配（处理 @某人 等额外内容）
+        if (paramNames.isEmpty()) {
+            String trimmedInput = input.trim();
+            if (trimmedInput.equals(template) || trimmedInput.startsWith(template + " ")) {
+                return new CommandHandler.CommandArgs(new HashMap<>());
+            }
+            return null;
+        }
 
         Pattern pattern = Pattern.compile(regex.toString());
         Matcher matcher = pattern.matcher(input);
@@ -642,16 +672,70 @@ public class HandlerRegistry implements BotDispatcher {
      * @param isAdmin true 返回全部命令（含管理员命令），false 仅返回普通命令
      */
     public List<CommandHelp> getHelpCommands(boolean isAdmin) {
+        return getHelpCommands(isAdmin, null);
+    }
+
+    /**
+     * 获取已注册的命令帮助列表，按渠道过滤。
+     * @param isAdmin true 返回全部命令（含管理员命令），false 仅返回普通命令
+     * @param channelId 渠道标识，null 表示不过滤
+     */
+    public List<CommandHelp> getHelpCommands(boolean isAdmin, String channelId) {
         return commandHelps.stream()
                 .filter(c -> isAdmin || !c.adminOnly())
+                .filter(c -> channelId == null || c.availableOn(channelId))
                 .toList();
     }
 
-    public record CommandHelp(String template, String description, boolean adminOnly) {}
+    public record CommandHelp(String template, String description, boolean adminOnly, String[] channels) {
+        /** 检查该命令在指定渠道是否可用。空 channels 表示全渠道可用。 */
+        public boolean availableOn(String channelId) {
+            if (channels == null || channels.length == 0) return true;
+            for (String c : channels) {
+                if (c.equals(channelId)) return true;
+            }
+            return false;
+        }
+    }
 
     /**
-     * 检查命令是否允许在事件所在的渠道执行。
+     * 检查是否匹配唤醒词列表中的任意一个。
      */
+    private boolean matchesWakeWord(String text) {
+        if (text == null || text.isBlank()) return false;
+        String lower = text.toLowerCase();
+        for (String w : properties.getWakeWords()) {
+            if (w != null && !w.isBlank() && lower.contains(w.toLowerCase())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 检查事件是否包含 @bot 或唤醒词。
+     * OneBot11: 检查 Message.getAts() 是否包含 selfId
+     * QQ Official: 检查 QqOfficialGroupMessageEvent.isAtBot()
+     */
+    private boolean isAtOrWake(ChannelEvent event) {
+        // 私聊：直接视为已触发
+        if (event instanceof com.dingdong.core.event.PrivateMessageEvent) return true;
+        if (event instanceof com.dingdong.channel.api.ChannelMessageEvent chMsg
+                && chMsg.getGroupId() == 0) return true;
+
+        // 唤醒词
+        String plainText = null;
+        if (event instanceof MessageEvent msgEvent) {
+            plainText = msgEvent.getPlainText();
+            if (msgEvent.getMessage().isAt(properties.getSelfId())) return true;
+        } else if (event instanceof com.dingdong.channel.api.ChannelMessageEvent chMsg) {
+            plainText = chMsg.getPlainText();
+            // QQ Official 的 atBot 标记
+            try {
+                java.lang.reflect.Method m = event.getClass().getMethod("isAtBot");
+                if ((boolean) m.invoke(event)) return true;
+            } catch (Exception ignored) {}
+        }
+        return matchesWakeWord(plainText);
+    }
     private boolean isChannelAllowed(CommandEntry entry, ChannelEvent event) {
         if (event == null) return true;
         String[] channels = entry.getChannels();

@@ -1,4 +1,3 @@
-
 package com.dingdong.admin.bot;
 
 import com.dingdong.channel.api.ChannelEvent;
@@ -16,7 +15,9 @@ import java.util.List;
 
 /**
  * 帮助命令：/help
- * 普通成员只显示非管理员命令，超级用户显示全部命令。
+ * 根据渠道显示不同的命令列表，AI 能力在两个渠道均可用。
+ * QQ 官方渠道使用 Markdown 格式（原生支持渲染），
+ * OneBot/NapCat 渠道使用纯文本格式（不支持 markdown）。
  */
 @Component
 @RequiredArgsConstructor
@@ -31,8 +32,124 @@ public class HelpBot {
     public String showHelp(ChannelEvent event) {
         long userId = extractUserId(event);
         boolean isAdmin = botProperties.getSuperUsers().contains(userId);
-        return buildHelpText(isAdmin, event);
+        String channelId = event.getChannelId();
+        List<HandlerRegistry.CommandHelp> cmds = handlerRegistry.getHelpCommands(isAdmin, channelId);
+
+        // QQ 官方渠道原生支持 Markdown，直接发送 Markdown 格式
+        if ("qqofficial".equals(channelId) && event instanceof com.dingdong.channel.api.ChannelMessageEvent chMsg
+                && chMsg.getApi() != null) {
+            chMsg.getApi().reply(buildMarkdownHelp(isAdmin, cmds));
+            return null;
+        }
+        // OneBot/NapCat 渠道：使用纯文本格式
+        return buildPlainTextHelp(isAdmin, cmds);
     }
+
+    // ===================== Markdown 格式（QQ 官方渠道）=====================
+
+    private String buildMarkdownHelp(boolean isAdmin, List<HandlerRegistry.CommandHelp> cmds) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(isAdmin ? "**【QQ官方 Bot · 管理员命令】**\n" : "**【QQ官方 Bot · 命令列表】**\n");
+        sb.append("群聊需 @bot + 指令，私聊直接发送指令\n\n");
+
+        // 基础命令
+        sb.append("**【基础命令】**\n");
+        boolean hasBase = false;
+        for (HandlerRegistry.CommandHelp cmd : cmds) {
+            if (isCultivationCmd(cmd.template())) continue;
+            if (cmd.template().contains("{") && cmd.template().contains("}")) continue;
+            sb.append("`").append(cmd.template()).append("`");
+            if (cmd.description() != null && !cmd.description().isBlank()) {
+                sb.append(" · ").append(cmd.description());
+            }
+            if (cmd.adminOnly()) sb.append(" `[管]`");
+            sb.append("\n");
+            hasBase = true;
+        }
+        if (!hasBase) sb.append("暂无\n");
+
+        sb.append("\n**【修仙系统】**\n");
+        sb.append("发送 `修仙菜单` 查看完整修仙指令\n");
+        sb.append("群聊需 @bot + 修仙指令触发\n");
+
+        sb.append("\n**【AI 能力】**\n");
+        sb.append("@bot 或喊唤醒词 + 想说的话即可对话：\n");
+        appendMarkdownAiCapabilities(sb);
+
+        return sb.toString().trim();
+    }
+
+    private void appendMarkdownAiCapabilities(StringBuilder sb) {
+        sb.append("• 搜索/天气/新闻 — 自动联网查询\n");
+        sb.append("• 翻译 — `\"用英语说你好\"` `\"翻译成日语\"`\n");
+        sb.append("• 讲笑话/段子 — `\"来个笑话\"`\n");
+        sb.append("• 塔罗牌占卜 — `\"帮我抽塔罗牌\"`\n");
+        sb.append("• 漂流瓶 — `\"扔漂流瓶\"` `\"捞漂流瓶\"`\n");
+        sb.append("• 大转盘/猜拳/骰子/8号球 — 趣味小游戏\n");
+        sb.append("• 随机选/抽签 — `\"帮我选一个\"`\n");
+        sb.append("• 数学计算/编码解码/文字特效\n");
+        sb.append("• 猜数字/真心话大冒险/谜语/绕口令\n");
+        sb.append("• 群友结婚 — `\"嫁给我\"` `\"我的CP\"`\n");
+        sb.append("• 文生图 — `\"画一只可爱的猫咪\"`\n");
+        sb.append("• 定时提醒 — `\"10分钟后提醒我\"`\n");
+        sb.append("• 长久记忆 — 聊过的重要事情会记住\n");
+    }
+
+    // ===================== 纯文本格式（OneBot/NapCat 渠道）=====================
+
+    private String buildPlainTextHelp(boolean isAdmin, List<HandlerRegistry.CommandHelp> cmds) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(isAdmin ? "【管理员命令列表】\n" : "【命令列表】\n");
+        sb.append("群聊需 @bot + 指令，私聊直接发送指令\n\n");
+
+        if (cmds.isEmpty()) {
+            sb.append("暂无命令\n");
+        } else {
+            for (HandlerRegistry.CommandHelp cmd : cmds) {
+                sb.append(formatCmd(cmd));
+            }
+        }
+
+        sb.append("\n【修仙系统】\n");
+        sb.append("  发送 \"修仙菜单\" 查看完整修仙指令\n");
+        sb.append("  群聊需 @bot + 修仙指令触发\n");
+
+        sb.append("\n【AI 能力】\n");
+        sb.append("@我 或 喊唤醒词即可对话：\n");
+        appendPlainTextAiCapabilities(sb);
+
+        sb.append("\n【人格系统】\n");
+        sb.append("  /persona — 查看可用人格\n");
+        sb.append("  /persona 名称 — 切换专属人格\n");
+
+        sb.append("\n【语音模式】\n");
+        sb.append("  /voice — 查看语音模式\n");
+        sb.append("  /voice on/off/default — 切换模式\n");
+
+        sb.append("\n【其他】\n");
+        sb.append("  /new — 重置会话上下文\n");
+        sb.append("  /安静 /silent — 群安静模式\n");
+
+        return sb.toString().trim();
+    }
+
+    private void appendPlainTextAiCapabilities(StringBuilder sb) {
+        sb.append("• 搜索/天气/新闻 — 自动联网查询\n");
+        sb.append("• 翻译 — \"用英语说你好\" \"翻译成日语\"\n");
+        sb.append("• 讲笑话/段子 — \"来个笑话\"\n");
+        sb.append("• 塔罗牌占卜 — \"帮我抽塔罗牌\"\n");
+        sb.append("• 漂流瓶 — \"扔漂流瓶\" \"捞漂流瓶\"\n");
+        sb.append("• 大转盘/猜拳/骰子/8号球 — 趣味小游戏\n");
+        sb.append("• 随机选/抽签 — \"帮我选一个\"\n");
+        sb.append("• 数学计算/编码解码/文字特效\n");
+        sb.append("• 猜数字/真心话大冒险/谜语/绕口令\n");
+        sb.append("• 群友结婚 — \"嫁给我\" \"我的CP\"\n");
+        sb.append("• 文生图 — \"画一只可爱的猫咪\"\n");
+        sb.append("• 定时提醒 — \"10分钟后提醒我\"\n");
+        sb.append("• 长久记忆 — 聊过的重要事情会记住\n");
+    }
+
+    // ===================== 工具方法 =====================
 
     private long extractUserId(ChannelEvent event) {
         if (event instanceof com.dingdong.core.event.MessageEvent me) {
@@ -47,79 +164,26 @@ public class HelpBot {
         return 0;
     }
 
-    private String buildHelpText(boolean isAdmin, ChannelEvent event) {
-        List<HandlerRegistry.CommandHelp> cmds = handlerRegistry.getHelpCommands(isAdmin);
-        String channelId = event.getChannelId();
-        boolean isOneBot = "onebot".equals(channelId);
-        boolean isQqOfficial = "qqofficial".equals(channelId);
+    private boolean isCultivationCmd(String template) {
+        String t = template.startsWith("/") ? template.substring(1) : template;
+        return t.equals("修仙") || t.equals("修炼") || t.equals("突破") || t.equals("渡劫")
+                || t.equals("修仙状态") || t.equals("修仙排行") || t.equals("修仙菜单") || t.equals("修仙帮助")
+                || t.equals("切磋") || t.equals("应战")
+                || t.equals("创建宗门") || t.equals("加入宗门") || t.equals("退出宗门")
+                || t.equals("踢出宗门") || t.equals("捐献") || t.equals("宗门状态") || t.equals("宗门排行")
+                || t.equals("丹药商店") || t.equals("购买")
+                || t.equals("签到") || t.equals("签到状态") || t.equals("运势")
+                || t.equals("求婚") || t.equals("同意求婚") || t.equals("离婚") || t.equals("我的CP") || t.equals("双修");
+    }
 
+    private String formatCmd(HandlerRegistry.CommandHelp cmd) {
         StringBuilder sb = new StringBuilder();
-        sb.append(isAdmin ? "【管理员命令列表】\n" : "【命令列表】\n");
-        if (cmds.isEmpty()) {
-            sb.append("暂无命令\n");
-        } else {
-            for (HandlerRegistry.CommandHelp cmd : cmds) {
-                sb.append(cmd.template());
-                if (cmd.description() != null && !cmd.description().isBlank()) {
-                    sb.append(" — ").append(cmd.description());
-                }
-                if (cmd.adminOnly()) {
-                    sb.append(" [管]");
-                }
-                sb.append("\n");
-            }
+        sb.append("  ").append(cmd.template());
+        if (cmd.description() != null && !cmd.description().isBlank()) {
+            sb.append(" — ").append(cmd.description());
         }
-
-        // 根据渠道显示不同信息
-        if (isQqOfficial) {
-            sb.append("\n【QQ官方 Bot】\n");
-            sb.append("发送命令即可触发，无需 @ 或唤醒词\n");
-        } else {
-            // OneBot11
-            sb.append("\n【AI 能力】\n");
-            sb.append("@我 或 喊唤醒词即可对话，支持以下能力：\n");
-            sb.append("• 搜索/天气/新闻 — 自动联网查询\n");
-            sb.append("• 翻译 — \"用英语说你好\" \"翻译成日语\"\n");
-            sb.append("• 讲笑话/段子 — \"来个笑话\"\n");
-            sb.append("• 今日运势 — \"今天运势怎样\"\n");
-            sb.append("• 塔罗牌占卜 — \"帮我抽塔罗牌\"\n");
-            sb.append("• 漂流瓶 — \"扔漂流瓶\" \"捞漂流瓶\"\n");
-            sb.append("• 惩罚大转盘 — \"大转盘\" \"抽个惩罚\"\n");
-            sb.append("• 石头剪刀布 — \"猜拳\"\n");
-            sb.append("• 掷骰子 — \"掷个d20\" \"3d6\"\n");
-            sb.append("• 8号球占卜 — \"8号球，今天会下雨吗\"\n");
-            sb.append("• 随机选/抽签 — \"帮我选一个\"\n");
-            sb.append("• 数学计算 — \"算一下 123*456\"\n");
-            sb.append("• 日期倒计时 — \"距离春节还有多少天\"\n");
-            sb.append("• 猜数字游戏 — \"来玩猜数字\"\n");
-            sb.append("• 真心话大冒险 — \"真心话大冒险\"\n");
-            sb.append("• 谜语/绕口令 — \"出个谜语\" \"来个绕口令\"\n");
-            sb.append("• 每日签到 — \"签到\" \"签到状态\"\n");
-            sb.append("• 群友结婚 — \"嫁给我\" \"我愿意\" \"我的CP\"\n");
-            sb.append("• 修仙系统 — \"修仙菜单\"查看全部\n");
-            sb.append("• 文字特效 — \"翻转文字\" \"删除线效果\"\n");
-            sb.append("• 编码解码 — \"base64编码你好\"\n");
-            sb.append("• 文生图 — \"画一只可爱的猫咪\" \"帮我画一张\"\n");
-            sb.append("• 定时提醒 — \"10分钟后提醒我开会\"\n");
-            sb.append("• 长久记忆 — 聊过的重要事情会记住\n");
-
-            sb.append("\n【人格系统】\n");
-            sb.append("/persona — 查看可用人格\n");
-            sb.append("/persona 名称 — 切换你的专属人格\n");
-            sb.append("每个人格独立设置，所有群通用\n");
-
-            sb.append("\n【语音模式】\n");
-            sb.append("/voice — 查看当前语音模式\n");
-            sb.append("/voice on — 每次回复都发语音\n");
-            sb.append("/voice off — 只发文字不发语音\n");
-            sb.append("/voice default — 默认模式（50%概率语音）\n");
-
-            sb.append("\n【其他】\n");
-            sb.append("/clear — 清空当前会话记忆\n");
-            sb.append("/安静 或 /silent — 开启/关闭群安静模式（3分钟）\n");
-            sb.append("  安静模式下仅此命令可用，权限：普通<管理<群主<超管\n");
-        }
-
-        return sb.toString().trim();
+        if (cmd.adminOnly()) sb.append(" [管]");
+        sb.append("\n");
+        return sb.toString();
     }
 }

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.List;
+
 /**
  * 渠道消息事件。
  * 所有消息类事件的基类。
@@ -23,6 +25,12 @@ public class ChannelMessageEvent extends ChannelEvent {
     /** 统一的回复 API */
     @JsonIgnore
     private MessageSender api;
+    /** 消息中 @ 提及的用户ID列表（各渠道自行解析填充） */
+    @JsonIgnore
+    private List<Long> mentions;
+    /** 原始消息内容（未被 removeAtMentions 等处理过的原始文本） */
+    @JsonIgnore
+    private String rawContent;
 
     /** 获取用户映射 ID */
     @JsonIgnore

@@ -17,7 +17,7 @@ import java.util.concurrent.locks.ReentrantLock;
 @Slf4j
 public class QqOfficialTokenManager {
 
-    private static final String TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token";
+    private static final String TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken";
     private static final long REFRESH_MARGIN_MS = 5 * 60 * 1000L;
 
     private final String appId;
@@ -71,26 +71,30 @@ public class QqOfficialTokenManager {
         return CompletableFuture.supplyAsync(() -> {
             lock.lock();
             try {
-                String url = TOKEN_URL + "?grant_type=client_credential&appid=" + appId
-                        + "&secret=" + appSecret;
-                Request request = new Request.Builder().url(url).get().build();
+                // QQ 官方机器人 Token API：POST + JSON body (appId + clientSecret)
+                String reqBody = objectMapper.writeValueAsString(
+                        java.util.Map.of("appId", appId, "clientSecret", appSecret));
+                Request request = new Request.Builder()
+                        .url(TOKEN_URL)
+                        .post(RequestBody.create(reqBody, MediaType.get("application/json")))
+                        .build();
                 try (Response response = httpClient.newCall(request).execute()) {
                     if (!response.isSuccessful() || response.body() == null) {
                         throw new RuntimeException("Token request failed: " + response.code());
                     }
-                    String body = response.body().string();
-                    JsonNode json = objectMapper.readTree(body);
-                    if (json.has("errcode") && json.get("errcode").asInt() != 0) {
-                        throw new RuntimeException("Token error: " + json.path("errmsg").asText());
+                    String respBody = response.body().string();
+                    JsonNode json = objectMapper.readTree(respBody);
+                    if (json.has("code") && json.get("code").asInt() != 0) {
+                        throw new RuntimeException("Token error: " + json.path("message").asText());
                     }
                     this.accessToken = json.get("access_token").asText();
                     int expiresIn = json.get("expires_in").asInt(7200);
                     this.expiresAtMs = System.currentTimeMillis() + expiresIn * 1000L;
                     log.info("QQ official token refreshed, expires in {}s", expiresIn);
                     return this.accessToken;
-                } catch (Exception e) {
-                    throw new RuntimeException("Failed to refresh token", e);
                 }
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to refresh token: " + e.getMessage(), e);
             } finally {
                 lock.unlock();
             }

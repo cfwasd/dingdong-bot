@@ -63,7 +63,7 @@ public class FallbackLlmProvider implements LlmProvider {
                                 });
                     } else {
                         // 不应该使用fallback的错误（如参数错误），直接抛出
-                        log.error("[Fallback] Non-recoverable error, not using fallback: {}", ex.getMessage());
+                        log.debug("[Fallback] Non-recoverable error, not using fallback: {}", ex.getMessage());
                         throw new RuntimeException(ex);
                     }
                 });
