@@ -1,25 +1,26 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.napcat</groupId>
-    <artifactId>napcat-parent</artifactId>
+    <artifactId>dingdong-parent</artifactId>
     <version>1.0.0</version>
     <packaging>pom</packaging>
 
-    <name>napcat-parent</name>
-    <description>NapCat Java SDK - Parent POM</description>
+    <name>dingdong-parent</name>
+    <description>DingDong Java SDK - Parent POM</description>
 
     <modules>
-        <module>napcat-core</module>
-        <module>napcat-agent</module>
-        <module>napcat-llm-providers/napcat-llm-openai</module>
-        <module>napcat-llm-providers/napcat-llm-anthropic</module>
-        <module>napcat-llm-providers/napcat-llm-ollama</module>
-        <module>napcat-spring-boot-starter</module>
-        <module>napcat-admin</module>
+        <module>dingdong-core</module>
+        <module>dingdong-agent</module>
+        <module>dingdong-cultivation</module>
+        <module>dingdong-llm-providers/dingdong-llm-openai</module>
+        <module>dingdong-llm-providers/dingdong-llm-anthropic</module>
+        <module>dingdong-llm-providers/dingdong-llm-ollama</module>
+        <module>dingdong-boot-starter</module>
+        <module>dingdong-admin</module>
         <module>dingdong-channel-api</module>
         <module>dingdong-qqofficial</module>
     </modules>
@@ -50,32 +51,37 @@
 
             <dependency>
                 <groupId>com.napcat</groupId>
-                <artifactId>napcat-core</artifactId>
+                <artifactId>dingdong-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.napcat</groupId>
-                <artifactId>napcat-agent</artifactId>
+                <artifactId>dingdong-agent</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.napcat</groupId>
-                <artifactId>napcat-llm-openai</artifactId>
+                <artifactId>dingdong-cultivation</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.napcat</groupId>
-                <artifactId>napcat-llm-anthropic</artifactId>
+                <artifactId>dingdong-llm-openai</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.napcat</groupId>
-                <artifactId>napcat-llm-ollama</artifactId>
+                <artifactId>dingdong-llm-anthropic</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.napcat</groupId>
-                <artifactId>napcat-spring-boot-starter</artifactId>
+                <artifactId>dingdong-llm-ollama</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.napcat</groupId>
+                <artifactId>dingdong-boot-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
