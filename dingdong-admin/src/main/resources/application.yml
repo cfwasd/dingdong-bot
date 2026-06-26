@@ -31,7 +31,7 @@ dingdong:
     adapter:
       type: websocket-client
       websocket-client:
-        url: ws://192.168.6.26:3001  # 请修改为你的 NapCat WebSocket 地址
+        url: ws://100.66.1.2:3001  # 请修改为你的 NapCat WebSocket 地址
         token: "wzh20041001"  # 请修改为你的 NapCat Token
 
     bot:
@@ -40,7 +40,7 @@ dingdong:
       ignore-self-message: true
       at-me-trigger: true
       wake-words:
-        - emiya
+#        - emiya
         - 小助手
       super-users:
         - 2322978154   # 你的QQ号
@@ -227,7 +227,7 @@ dingdong:
   # ================================================================
   memory:
     enabled: true
-    test-data-enabled: true
+    test-data-enabled: false
 
   # ================================================================
   # Scheduler 配置
@@ -237,4 +237,4 @@ dingdong:
 
 logging:
   level:
-    com.dingdong: INFO
+    com.dingdong: DEBUG

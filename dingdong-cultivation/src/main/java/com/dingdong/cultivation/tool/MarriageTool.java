@@ -60,6 +60,10 @@ public class MarriageTool {
                         "CREATE INDEX IF NOT EXISTS idx_marriages_user2 ON marriages(group_id, user2_id, status)")) {
                     idx2.execute();
                 }
+                try (PreparedStatement idx3 = conn.prepareStatement(
+                        "CREATE INDEX IF NOT EXISTS idx_marriages_user2name ON marriages(group_id, user2_name, status)")) {
+                    idx3.execute();
+                }
 
                 tableReady = true;
                 } catch (Exception e) {
@@ -141,7 +145,7 @@ public class MarriageTool {
                    "💕 " + uName + " 深情地对 " + tName + " 说：\n" +
                    "\"愿意和我在一起吗？\"\n" +
                    "━━━━━━━━━━━━━━\n\n" +
-                   "💡 " + tName + "，说\"我愿意\"来接受求婚！\n" +
+                   "💡 " + tName + "，说\"/接受求婚\"来接受求婚！\n" +
                    "⏰ 求婚有效期24小时，过期自动作废。";
         } catch (Exception e) {
             log.error("Propose failed", e);
@@ -169,6 +173,8 @@ public class MarriageTool {
 
         try (Connection conn = dbManager.getConnection()) {
             PendingProposal proposal = null;
+
+            // 1. 先通过 user2_id 查（OneBot 渠道，targetId 是真实用户ID）
             try (PreparedStatement stmt = conn.prepareStatement(
                     "SELECT id, user1_id, user1_name FROM marriages " +
                     "WHERE group_id = ? AND user2_id = ? AND status = 'pending' " +
@@ -178,6 +184,21 @@ public class MarriageTool {
                 ResultSet rs = stmt.executeQuery();
                 if (rs.next()) {
                     proposal = new PendingProposal(rs.getLong("id"), rs.getLong("user1_id"), rs.getString("user1_name"));
+                }
+            }
+
+            // 2. 再通过 user2_name 查（QQ 官方渠道后备，user2_id 是名字hash）
+            if (proposal == null && uName != null && !uName.isBlank()) {
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT id, user1_id, user1_name FROM marriages " +
+                        "WHERE group_id = ? AND user2_name = ? AND status = 'pending' " +
+                        "ORDER BY id DESC LIMIT 1")) {
+                    stmt.setLong(1, groupId);
+                    stmt.setString(2, uName);
+                    ResultSet rs = stmt.executeQuery();
+                    if (rs.next()) {
+                        proposal = new PendingProposal(rs.getLong("id"), rs.getLong("user1_id"), rs.getString("user1_name"));
+                    }
                 }
             }
 
@@ -200,10 +221,12 @@ public class MarriageTool {
                 return "💔 求婚者 " + proposal.user1Name + " 已经和别人结婚了！\n求婚自动作废...";
             }
 
+            // 更新为已婚状态，同时修正 user2_id（QQ官方渠道下初始是名字hash，接受后更新为真实ID）
             try (PreparedStatement stmt = conn.prepareStatement(
-                    "UPDATE marriages SET status = 'married', married_at = ? WHERE id = ?")) {
+                    "UPDATE marriages SET status = 'married', married_at = ?, user2_id = ? WHERE id = ?")) {
                 stmt.setString(1, today);
-                stmt.setLong(2, proposal.id);
+                stmt.setLong(2, userId);
+                stmt.setLong(3, proposal.id);
                 stmt.executeUpdate();
             }
 

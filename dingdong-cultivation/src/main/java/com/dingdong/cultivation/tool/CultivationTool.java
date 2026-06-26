@@ -74,6 +74,13 @@ public class CultivationTool {
         } catch (Exception e) {
             log.error("Failed to create spar_challenges table", e);
         }
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement idx = conn.prepareStatement(
+                 "CREATE INDEX IF NOT EXISTS idx_spar_target_name ON spar_challenges(group_id, target_name, status)")) {
+            idx.execute();
+        } catch (Exception e) {
+            log.error("Failed to create spar_challenges target_name index", e);
+        }
     }
 
     private String now() {
@@ -742,21 +749,42 @@ public class CultivationTool {
             long challengeId;
             String challengerName;
             long challengerId;
+
+            // 1. 先通过 target_id 查（OneBot 渠道，targetId 是真实用户ID）
             try (PreparedStatement stmt = conn.prepareStatement(
                     "SELECT id, challenger_id, challenger_name FROM spar_challenges " +
                     "WHERE group_id = ? AND target_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1")) {
                 stmt.setLong(1, groupId);
                 stmt.setLong(2, userId);
                 ResultSet rs = stmt.executeQuery();
-                if (!rs.next()) return "🤔 " + uName + " 目前没有待接受的切磋挑战！";
-                challengeId = rs.getLong("id");
-                challengerId = rs.getLong("challenger_id");
-                challengerName = rs.getString("challenger_name");
+                if (rs.next()) {
+                    challengeId = rs.getLong("id");
+                    challengerId = rs.getLong("challenger_id");
+                    challengerName = rs.getString("challenger_name");
+                } else {
+                    // 2. 再通过 target_name 查（QQ 官方渠道后备，target_id 是名字hash）
+                    try (PreparedStatement stmt2 = conn.prepareStatement(
+                            "SELECT id, challenger_id, challenger_name FROM spar_challenges " +
+                            "WHERE group_id = ? AND target_name = ? AND status = 'pending' ORDER BY id DESC LIMIT 1")) {
+                        stmt2.setLong(1, groupId);
+                        stmt2.setString(2, uName);
+                        ResultSet rs2 = stmt2.executeQuery();
+                        if (rs2.next()) {
+                            challengeId = rs2.getLong("id");
+                            challengerId = rs2.getLong("challenger_id");
+                            challengerName = rs2.getString("challenger_name");
+                        } else {
+                            return "🤔 " + uName + " 目前没有待接受的切磋挑战！";
+                        }
+                    }
+                }
             }
 
+            // 更新为 accepted，同时修正 target_id（QQ官方渠道下初始是名字hash）
             try (PreparedStatement stmt = conn.prepareStatement(
-                    "UPDATE spar_challenges SET status = 'accepted' WHERE id = ?")) {
-                stmt.setLong(1, challengeId);
+                    "UPDATE spar_challenges SET status = 'accepted', target_id = ? WHERE id = ?")) {
+                stmt.setLong(1, userId);
+                stmt.setLong(2, challengeId);
                 stmt.executeUpdate();
             }
 

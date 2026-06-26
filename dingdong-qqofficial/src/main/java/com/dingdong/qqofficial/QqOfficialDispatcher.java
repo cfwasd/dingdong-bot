@@ -320,4 +320,17 @@ public class QqOfficialDispatcher implements Consumer<JsonNode> {
             log.warn("Failed to send {} via qq-official", type, e);
         }
     }
+
+    /**
+     * 从 mentions 数组元素中提取用户标识 openid。
+     * 尝试多种可能的字段名：id / member_openid / user_openid / openid / user_id
+     */
+    private static String extractMentionId(JsonNode m) {
+        String[] fields = {"id", "member_openid", "user_openid", "openid", "user_id"};
+        for (String f : fields) {
+            String val = m.path(f).asText("");
+            if (!val.isBlank()) return val;
+        }
+        return "";
+    }
 }

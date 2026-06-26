@@ -62,6 +62,10 @@ public class SectTool {
                         "PRIMARY KEY (sect_id, user_id, group_id))")) {
                     stmt.execute();
                 }
+                try (PreparedStatement idx = conn.prepareStatement(
+                        "CREATE INDEX IF NOT EXISTS idx_sect_members_name ON sect_members(sect_id, user_name, group_id)")) {
+                    idx.execute();
+                }
                 tableReady = true;
             } catch (Exception e) {
                 log.error("Failed to create sect tables", e);
@@ -338,7 +342,8 @@ public class SectTool {
     public String kickMember(
         @ToolParam(value = "user_id", description = "宗主ID", required = true) String userIdStr,
         @ToolParam(value = "group_id", description = "群ID", required = true) String groupIdStr,
-        @ToolParam(value = "target_id", description = "被踢者ID", required = true) String targetIdStr
+        @ToolParam(value = "target_id", description = "被踢者ID", required = true) String targetIdStr,
+        @ToolParam(value = "target_name", description = "被踢者昵称（QQ官方渠道后备）", required = false) String targetNameArg
     ) {
         long userId, groupId, targetId;
         try { userId = Long.parseLong(userIdStr.trim()); } catch (NumberFormatException e) { return "❌ 用户ID格式错误"; }
@@ -363,15 +368,37 @@ public class SectTool {
                 sectName = rs.getString("name");
             }
 
+            // 1. 先通过 user_id 查（OneBot 渠道）
+            boolean found = false;
             try (PreparedStatement stmt = conn.prepareStatement(
-                    "SELECT user_name FROM sect_members WHERE sect_id = ? AND user_id = ? AND group_id = ?")) {
+                    "SELECT user_name, user_id FROM sect_members WHERE sect_id = ? AND user_id = ? AND group_id = ?")) {
                 stmt.setLong(1, sectId);
                 stmt.setLong(2, targetId);
                 stmt.setLong(3, groupId);
                 ResultSet rs = stmt.executeQuery();
-                if (!rs.next()) return "❌ 该成员不在你的宗门中！";
-                targetName = rs.getString("user_name");
+                if (rs.next()) {
+                    targetName = rs.getString("user_name");
+                    found = true;
+                }
             }
+
+            // 2. 再通过 user_name 查（QQ 官方渠道后备，target_id 是名字hash）
+            if (!found && targetNameArg != null && !targetNameArg.isBlank()) {
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT user_name, user_id FROM sect_members WHERE sect_id = ? AND user_name = ? AND group_id = ?")) {
+                    stmt.setLong(1, sectId);
+                    stmt.setString(2, targetNameArg);
+                    stmt.setLong(3, groupId);
+                    ResultSet rs = stmt.executeQuery();
+                    if (rs.next()) {
+                        targetName = rs.getString("user_name");
+                        targetId = rs.getLong("user_id");
+                        found = true;
+                    }
+                }
+            }
+
+            if (!found) return "❌ 该成员不在你的宗门中！";
 
             try (PreparedStatement stmt = conn.prepareStatement(
                     "DELETE FROM sect_members WHERE sect_id = ? AND user_id = ? AND group_id = ?")) {

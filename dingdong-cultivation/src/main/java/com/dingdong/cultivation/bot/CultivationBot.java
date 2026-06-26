@@ -12,10 +12,12 @@ import com.dingdong.core.event.MessageEvent;
 import com.dingdong.cultivation.tool.CultivationTool;
 import com.dingdong.cultivation.tool.SectTool;
 import com.dingdong.cultivation.tool.PillShopTool;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+@Slf4j
 @Component
 public class CultivationBot {
 
@@ -122,14 +124,14 @@ public class CultivationBot {
             `/修仙菜单` · 显示本菜单
 
             **【切磋】**
-            `/切磋 @某人` · 发起切磋战斗
+            `/切磋 对方名字` · 发起切磋战斗
             `/应战` · 接受切磋挑战
 
             **【宗门】**（金丹期可用）
             `/创建宗门 名字` · 创建宗门
             `/加入宗门 名字` · 申请加入宗门
             `/退出宗门` · 退出宗门
-            `/踢出宗门 @某人` · 踢出宗门（宗主）
+            `/踢出宗门 成员名字` · 踢出宗门（宗主）
             `/捐献 数量` · 捐献灵石升级宗门
             `/宗门状态` · 查看宗门信息
             `/宗门排行` · 群内宗门排名
@@ -144,7 +146,7 @@ public class CultivationBot {
             `/运势` · 今日运势
 
             **【姻缘双修】**
-            `/求婚 @某人` · 向TA求婚
+            `/求婚 对方名字` · 向TA求婚
             `/同意求婚` · 接受求婚
             `/离婚` · 解除婚姻
             `/我的CP` · 查看CP状态
@@ -218,6 +220,19 @@ public class CultivationBot {
                 if (!arg.isEmpty()) targetName = arg;
             }
         }
+
+        // QQ 官方渠道：API 不推送 @ 信息，从 content 中解析目标名字
+        if (targetId == 0 && "qqofficial".equals(event.getChannelId())) {
+            if (!targetName.isBlank()) {
+                // 用名字 hash 作为稳定的 targetId（确保 > 0）
+                targetId = Math.abs(targetName.hashCode());
+                if (targetId == 0) targetId = 1;
+                log.debug("[QQ官方/切磋] 从文本解析目标: name={}, hashId={}", targetName, targetId);
+            } else {
+                return "⚔️ 请发送 `/切磋 对方名字` 来发起挑战~\n（QQ官方渠道不支持@功能）";
+            }
+        }
+
         return cultivationTool.sparInitiate(
             String.valueOf(userId), String.valueOf(groupId), userName,
             String.valueOf(targetId), targetName);
@@ -271,8 +286,27 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         long targetId = resolveMentionTargetId(event);
+        String targetName = "";
+
+        // QQ 官方渠道：API 不推送 @ 信息，从 content 中解析目标名字
+        if (targetId == 0 && "qqofficial".equals(event.getChannelId())) {
+            String text = getPlainText(event);
+            if (text != null && !text.isBlank()) {
+                String arg = text.replaceFirst("^/踢出宗门\\s*", "").trim();
+                if (!arg.isBlank()) {
+                    targetName = arg;
+                    targetId = Math.abs(targetName.hashCode());
+                    if (targetId == 0) targetId = 1;
+                    log.debug("[QQ官方/踢出] 从文本解析目标: name={}, hashId={}", targetName, targetId);
+                }
+            }
+            if (targetId == 0) {
+                return "❌ 请发送 `/踢出宗门 成员名字` 来踢人~\n（QQ官方渠道不支持@功能）";
+            }
+        }
+
         return sectTool.kickMember(
-            String.valueOf(userId), String.valueOf(groupId), String.valueOf(targetId));
+            String.valueOf(userId), String.valueOf(groupId), String.valueOf(targetId), targetName);
     }
 
     @OnGroupMessage
@@ -377,18 +411,38 @@ public class CultivationBot {
             } catch (Exception ignored) {}
         }
 
-        // QQ 官方 / 通用渠道：从 ChannelMessageEvent.mentions 获取
+        // QQ 官方 / 通用渠道：从 ChannelMessageEvent 获取
         if (event instanceof ChannelMessageEvent chMsg) {
+            // 1. 优先使用 mentions 列表（dispatcher 已过滤 bot）
             List<Long> mentions = chMsg.getMentions();
             if (mentions != null && !mentions.isEmpty()) {
                 for (Long m : mentions) {
-                    if (m != null && m != selfId && m > 0) {
+                    if (m != null && m > 0) {
                         return m;
                     }
                 }
             }
 
-            // 备用：从文本解析
+            // 2. 后备：从原始 content 解析 <@!id> / <@id>（QQ 官方格式）
+            String rawContent = chMsg.getRawContent();
+            if (rawContent != null && !rawContent.isBlank()) {
+                java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("<@!?([^>]+)>").matcher(rawContent);
+                while (matcher.find()) {
+                    String atId = matcher.group(1).trim();
+                    if (!atId.isBlank()) {
+                        try {
+                            long id = Long.parseLong(atId);
+                            if (id > 0 && id != selfId) {
+                                return id;
+                            }
+                        } catch (NumberFormatException e) {
+                            // openid 是字符串，无法解析为 long，跳过
+                        }
+                    }
+                }
+            }
+
+            // 3. 最后尝试从 plainText 解析（兼容旧格式）
             String text = chMsg.getPlainText();
             if (text != null) {
                 int start = text.indexOf("<@");

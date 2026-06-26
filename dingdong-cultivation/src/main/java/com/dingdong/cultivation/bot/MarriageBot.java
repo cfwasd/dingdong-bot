@@ -9,10 +9,12 @@ import com.dingdong.core.config.BotProperties;
 import com.dingdong.core.event.GroupMessageEvent;
 import com.dingdong.core.event.MessageEvent;
 import com.dingdong.cultivation.tool.MarriageTool;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+@Slf4j
 @Component
 public class MarriageBot {
 
@@ -32,8 +34,29 @@ public class MarriageBot {
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
         long targetId = resolveMentionTargetId(event);
+        String targetName = "";
+
+        // QQ 官方渠道：API 不推送 @ 信息，从 content 中解析目标名字
+        if (targetId == 0 && "qqofficial".equals(event.getChannelId())) {
+            String text = getPlainText(event);
+            if (text != null && !text.isBlank()) {
+                // 去掉 /求婚 前缀，剩余部分作为目标名字
+                String args = text.replaceFirst("^/求婚\\s*", "").trim();
+                if (!args.isBlank()) {
+                    targetName = args;
+                    // 用名字 hash 作为稳定的 targetId（确保 > 0）
+                    targetId = Math.abs(targetName.hashCode());
+                    if (targetId == 0) targetId = 1;
+                    log.debug("[QQ官方/求婚] 从文本解析目标: name={}, hashId={}", targetName, targetId);
+                }
+            }
+            if (targetId == 0) {
+                return "💍 请发送 `/求婚 对方名字` 来向TA求婚~\n（QQ官方渠道不支持@功能）";
+            }
+        }
+
         return marriageTool.propose(
-            String.valueOf(userId), String.valueOf(targetId), String.valueOf(groupId), userName, "");
+            String.valueOf(userId), String.valueOf(targetId), String.valueOf(groupId), userName, targetName);
     }
 
     @OnGroupMessage
@@ -119,18 +142,38 @@ public class MarriageBot {
             } catch (Exception ignored) {}
         }
 
-        // QQ 官方 / 通用渠道：从 ChannelMessageEvent.mentions 获取
+        // QQ 官方 / 通用渠道：从 ChannelMessageEvent 获取
         if (event instanceof ChannelMessageEvent chMsg) {
+            // 1. 优先使用 mentions 列表（dispatcher 已过滤 bot）
             List<Long> mentions = chMsg.getMentions();
             if (mentions != null && !mentions.isEmpty()) {
                 for (Long m : mentions) {
-                    if (m != null && m != selfId && m > 0) {
+                    if (m != null && m > 0) {
                         return m;
                     }
                 }
             }
 
-            // 备用：从文本解析（QQ 官方已去 @ 时）
+            // 2. 后备：从原始 content 解析 <@!id> / <@id>（QQ 官方格式）
+            String rawContent = chMsg.getRawContent();
+            if (rawContent != null && !rawContent.isBlank()) {
+                java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("<@!?([^>]+)>").matcher(rawContent);
+                while (matcher.find()) {
+                    String atId = matcher.group(1).trim();
+                    if (!atId.isBlank()) {
+                        try {
+                            long id = Long.parseLong(atId);
+                            if (id > 0 && id != selfId) {
+                                return id;
+                            }
+                        } catch (NumberFormatException e) {
+                            // openid 是字符串，无法解析为 long，跳过
+                        }
+                    }
+                }
+            }
+
+            // 3. 最后尝试从 plainText 解析（兼容旧格式）
             String text = chMsg.getPlainText();
             if (text != null) {
                 int start = text.indexOf("<@");
@@ -145,5 +188,11 @@ public class MarriageBot {
             }
         }
         return 0;
+    }
+
+    private String getPlainText(ChannelEvent event) {
+        if (event instanceof MessageEvent me) return me.getPlainText();
+        if (event instanceof ChannelMessageEvent chMsg) return chMsg.getPlainText();
+        return "";
     }
 }
