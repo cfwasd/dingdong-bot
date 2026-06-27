@@ -35,14 +35,74 @@ public class HelpBot {
         String channelId = event.getChannelId();
         List<HandlerRegistry.CommandHelp> cmds = handlerRegistry.getHelpCommands(isAdmin, channelId);
 
-        // QQ 官方渠道原生支持 Markdown，直接发送 Markdown 格式
+        // QQ 官方渠道原生支持 Markdown，直接发送 Markdown 格式 + 按钮
         if ("qqofficial".equals(channelId) && event instanceof com.dingdong.channel.api.ChannelMessageEvent chMsg
                 && chMsg.getApi() != null) {
-            chMsg.getApi().reply(buildMarkdownHelp(isAdmin, cmds));
+            String markdown = buildMarkdownHelp(isAdmin, cmds);
+            String keyboardJson = buildHelpKeyboard();
+            boolean sent = false;
+            try {
+                Object api = chMsg.getApi();
+                java.lang.reflect.Method m = api.getClass().getMethod("replyWithKeyboard", String.class, String.class);
+                m.invoke(api, markdown, keyboardJson);
+                sent = true;
+            } catch (Exception e) {
+                // fallback
+            }
+            if (!sent) {
+                chMsg.getApi().reply(markdown);
+            }
             return null;
         }
         // OneBot/NapCat 渠道：使用纯文本格式
         return buildPlainTextHelp(isAdmin, cmds);
+    }
+
+    /**
+     * 【QQ官方】帮助面板：按钮为主的面板，类似修仙面板风格。
+     */
+    @OnGroupMessage
+    @OnPrivateMessage
+    @Command(value = "/帮助面板", description = "【QQ官方】帮助面板（按钮为主）")
+    public String helpPanel(ChannelEvent event) {
+        if (!"qqofficial".equals(event.getChannelId())) {
+            return "💡 此功能仅在 QQ 官方渠道可用~";
+        }
+        if (!(event instanceof ChannelMessageEvent chMsg) || chMsg.getApi() == null) {
+            return "❌ 面板发送失败";
+        }
+
+        long userId = extractUserId(event);
+        boolean isAdmin = botProperties.getSuperUsers().contains(userId);
+        String markdown = buildHelpPanelMarkdown(isAdmin);
+        String keyboardJson = buildHelpPanelKeyboard();
+
+        boolean sent = false;
+        try {
+            Object api = chMsg.getApi();
+            java.lang.reflect.Method m = api.getClass().getMethod("replyWithKeyboard", String.class, String.class);
+            m.invoke(api, markdown, keyboardJson);
+            sent = true;
+        } catch (Exception e) {
+            // fallback
+        }
+        if (!sent) {
+            List<HandlerRegistry.CommandHelp> cmds = handlerRegistry.getHelpCommands(isAdmin, event.getChannelId());
+            chMsg.getApi().reply(buildMarkdownHelp(isAdmin, cmds));
+        }
+        return null;
+    }
+
+    private String buildHelpPanelMarkdown(boolean isAdmin) {
+        return """
+            > **🎯 功能导航**
+            >
+            > **🎋 修仙面板** — 修仙入口
+            > **🤖 Agent 能力** — 画图 · 搜索 · 讲笑话 · 塔罗牌 · 猜拳 · 抽签
+            > **⚙️ 系统功能** — 人格 · 语音 · 重置会话 · 修仙菜单 · 安静模式
+            >
+            > 点击下方按钮使用对应功能 👇
+            """.trim();
     }
 
     // ===================== Markdown 格式（QQ 官方渠道）=====================
@@ -147,6 +207,69 @@ public class HelpBot {
         sb.append("• 文生图 — \"画一只可爱的猫咪\"\n");
         sb.append("• 定时提醒 — \"10分钟后提醒我\"\n");
         sb.append("• 长久记忆 — 聊过的重要事情会记住\n");
+    }
+
+    /**
+     * /help 的键盘：作为 Markdown 帮助的补充，提供快捷入口。
+     */
+    private String buildHelpKeyboard() {
+        return """
+            {"content":{"rows":[
+              {"buttons":[
+                {"render_data":{"label":"🎋 修仙面板","style":1},"action":{"type":2,"permission":{"type":2},"data":"/修仙面板"}},
+                {"render_data":{"label":"💒 婚姻面板","style":0},"action":{"type":2,"permission":{"type":2},"data":"/婚姻面板"}},
+                {"render_data":{"label":"📊 修仙状态","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙状态"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"📅 签到","style":0},"action":{"type":2,"permission":{"type":2},"data":"/签到"}},
+                {"render_data":{"label":"🔮 运势","style":0},"action":{"type":2,"permission":{"type":2},"data":"/运势"}},
+                {"render_data":{"label":"💊 丹药商店","style":0},"action":{"type":2,"permission":{"type":2},"data":"/丹药商店"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"🎭 人格","style":0},"action":{"type":2,"permission":{"type":2},"data":"/persona"}},
+                {"render_data":{"label":"🔊 语音","style":0},"action":{"type":2,"permission":{"type":2},"data":"/voice"}},
+                {"render_data":{"label":"🔄 重置会话","style":0},"action":{"type":2,"permission":{"type":2},"data":"/new"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"📜 修仙菜单","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙菜单"}},
+                {"render_data":{"label":"🔕 安静模式","style":0},"action":{"type":2,"permission":{"type":2},"data":"/安静"}},
+                {"render_data":{"label":"🎯 帮助面板","style":0},"action":{"type":2,"permission":{"type":2},"data":"/帮助面板"}}
+              ]}
+            ]}}
+            """.replaceAll("\\s*\\n\\s*", "");
+    }
+
+    /**
+     * /帮助面板 的键盘：按钮为主，一个修仙入口 + Agent 能力 + 系统功能。
+     */
+    private String buildHelpPanelKeyboard() {
+        return """
+            {"content":{"rows":[
+              {"buttons":[
+                {"render_data":{"label":"🎋 修仙面板","style":1},"action":{"type":2,"permission":{"type":2},"data":"/修仙面板"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"🎨 画图","style":0},"action":{"type":2,"permission":{"type":2},"data":"画一只可爱的猫咪"}},
+                {"render_data":{"label":"🌐 搜索","style":0},"action":{"type":2,"permission":{"type":2},"data":"帮我搜索今天的新闻"}},
+                {"render_data":{"label":"💬 讲笑话","style":0},"action":{"type":2,"permission":{"type":2},"data":"来个笑话"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"🔮 塔罗牌","style":0},"action":{"type":2,"permission":{"type":2},"data":"帮我抽塔罗牌"}},
+                {"render_data":{"label":"🎲 猜拳","style":0},"action":{"type":2,"permission":{"type":2},"data":"猜拳"}},
+                {"render_data":{"label":"🎯 抽签","style":0},"action":{"type":2,"permission":{"type":2},"data":"帮我抽签"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"🎭 人格","style":0},"action":{"type":2,"permission":{"type":2},"data":"/persona"}},
+                {"render_data":{"label":"🔊 语音","style":0},"action":{"type":2,"permission":{"type":2},"data":"/voice"}},
+                {"render_data":{"label":"🔄 重置会话","style":0},"action":{"type":2,"permission":{"type":2},"data":"/new"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"📜 修仙菜单","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙菜单"}},
+                {"render_data":{"label":"🔕 安静模式","style":0},"action":{"type":2,"permission":{"type":2},"data":"/安静"}},
+                {"render_data":{"label":"❓ /help","style":0},"action":{"type":2,"permission":{"type":2},"data":"/help"}}
+              ]}
+            ]}}
+            """.replaceAll("\\s*\\n\\s*", "");
     }
 
     // ===================== 工具方法 =====================

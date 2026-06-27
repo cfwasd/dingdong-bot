@@ -40,11 +40,9 @@ public class MarriageBot {
         if (targetId == 0 && "qqofficial".equals(event.getChannelId())) {
             String text = getPlainText(event);
             if (text != null && !text.isBlank()) {
-                // 去掉 /求婚 前缀，剩余部分作为目标名字
                 String args = text.replaceFirst("^/求婚\\s*", "").trim();
                 if (!args.isBlank()) {
                     targetName = args;
-                    // 用名字 hash 作为稳定的 targetId（确保 > 0）
                     targetId = Math.abs(targetName.hashCode());
                     if (targetId == 0) targetId = 1;
                     log.debug("[QQ官方/求婚] 从文本解析目标: name={}, hashId={}", targetName, targetId);
@@ -55,8 +53,8 @@ public class MarriageBot {
             }
         }
 
-        return marriageTool.propose(
-            String.valueOf(userId), String.valueOf(targetId), String.valueOf(groupId), userName, targetName);
+        return wrapWithKeyboard(event, marriageTool.propose(
+            String.valueOf(userId), String.valueOf(targetId), String.valueOf(groupId), userName, targetName));
     }
 
     @OnGroupMessage
@@ -66,8 +64,8 @@ public class MarriageBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return marriageTool.accept(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, marriageTool.accept(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
@@ -77,8 +75,8 @@ public class MarriageBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return marriageTool.divorce(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, marriageTool.divorce(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
@@ -88,8 +86,8 @@ public class MarriageBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return marriageTool.cpStatus(
-            String.valueOf(userId), String.valueOf(groupId), null, userName);
+        return wrapWithKeyboard(event, marriageTool.cpStatus(
+            String.valueOf(userId), String.valueOf(groupId), null, userName));
     }
 
     @OnGroupMessage
@@ -99,8 +97,113 @@ public class MarriageBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return marriageTool.dualCultivate(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, marriageTool.dualCultivate(
+            String.valueOf(userId), String.valueOf(groupId), userName));
+    }
+
+    /**
+     * 【QQ官方】婚姻面板：显示婚姻状态 + 婚姻专属按钮。
+     */
+    @OnGroupMessage
+    @OnPrivateMessage
+    @Command(value = "/婚姻面板", description = "【QQ官方】婚姻状态面板")
+    public String marriagePanel(ChannelEvent event) {
+        if (!"qqofficial".equals(event.getChannelId())) {
+            return "💡 此功能仅在 QQ 官方渠道可用~";
+        }
+        if (!(event instanceof ChannelMessageEvent chMsg) || chMsg.getApi() == null) {
+            return "❌ 面板发送失败";
+        }
+
+        long userId = resolveUserId(event);
+        long groupId = resolveGroupId(event);
+        String userName = resolveUserName(event);
+
+        // 获取婚姻状态文本
+        String statusText = marriageTool.cpStatus(
+            String.valueOf(userId), String.valueOf(groupId), null, userName);
+
+        String markdown = "> **💒 姻缘殿**\n\n"
+                + "> " + statusText.replace("\n", "\n> ") + "\n\n"
+                + "> 点击下方按钮操作 👇";
+
+        String keyboardJson = buildMarriagePanelKeyboard();
+
+        boolean sent = false;
+        try {
+            Object api = chMsg.getApi();
+            java.lang.reflect.Method m = api.getClass().getMethod("replyWithKeyboard", String.class, String.class);
+            m.invoke(api, markdown, keyboardJson);
+            sent = true;
+        } catch (Exception e) {
+            log.debug("replyWithKeyboard failed for marriage panel", e);
+        }
+        if (!sent) {
+            chMsg.getApi().reply(statusText);
+        }
+        return null;
+    }
+
+    /**
+     * QQ 官方渠道下，将文本结果和按钮面板一起发送。
+     */
+    private String wrapWithKeyboard(ChannelEvent event, String text) {
+        if (text == null || !"qqofficial".equals(event.getChannelId())) return text;
+        if (!(event instanceof ChannelMessageEvent chMsg) || chMsg.getApi() == null) return text;
+
+        String markdown = text.replaceAll("(?m)^", "> ").trim();
+        String keyboardJson = buildMarriageKeyboard();
+
+        boolean sent = false;
+        try {
+            Object api = chMsg.getApi();
+            java.lang.reflect.Method m = api.getClass().getMethod("replyWithKeyboard", String.class, String.class);
+            m.invoke(api, markdown, keyboardJson);
+            sent = true;
+        } catch (NoSuchMethodException e) {
+            log.debug("replyWithKeyboard not available");
+        } catch (Exception e) {
+            log.warn("replyWithKeyboard failed", e);
+        }
+        if (!sent) {
+            chMsg.getApi().reply(text);
+        }
+        return null;
+    }
+
+    private String buildMarriageKeyboard() {
+        return """
+            {"content":{"rows":[
+              {"buttons":[
+                {"render_data":{"label":"💍 求婚","style":1},"action":{"type":2,"permission":{"type":2},"data":"/求婚"}},
+                {"render_data":{"label":"❤️ 我的CP","style":0},"action":{"type":2,"permission":{"type":2},"data":"/我的CP"}},
+                {"render_data":{"label":"💋 双修","style":0},"action":{"type":2,"permission":{"type":2},"data":"/双修"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"📊 修仙状态","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙状态"}},
+                {"render_data":{"label":"🗡️ 修炼","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修炼"}},
+                {"render_data":{"label":"📅 签到","style":0},"action":{"type":2,"permission":{"type":2},"data":"/签到"}}
+              ]}
+            ]}}
+            """.replaceAll("\\s*\\n\\s*", "");
+    }
+
+    private String buildMarriagePanelKeyboard() {
+        return """
+            {"content":{"rows":[
+              {"buttons":[
+                {"render_data":{"label":"💍 求婚","style":1},"action":{"type":2,"permission":{"type":2},"data":"/求婚"}},
+                {"render_data":{"label":"❤️ 我的CP","style":0},"action":{"type":2,"permission":{"type":2},"data":"/我的CP"}},
+                {"render_data":{"label":"💋 双修","style":0},"action":{"type":2,"permission":{"type":2},"data":"/双修"}},
+                {"render_data":{"label":"💔 离婚","style":0},"action":{"type":2,"permission":{"type":2},"data":"/离婚"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"🗡️ 修炼","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修炼"}},
+                {"render_data":{"label":"📊 修仙状态","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙状态"}},
+                {"render_data":{"label":"📜 修仙菜单","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙菜单"}}
+              ]}
+            ]}}
+            """.replaceAll("\\s*\\n\\s*", "");
     }
 
     private long resolveUserId(ChannelEvent event) {

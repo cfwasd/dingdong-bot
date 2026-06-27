@@ -29,6 +29,7 @@ public class QqOfficialTokenManager {
     private volatile String accessToken;
     private volatile long expiresAtMs;
     private ScheduledExecutorService scheduler;
+    private Runnable onRefreshedCallback;
 
     public QqOfficialTokenManager(String appId, String appSecret) {
         this(appId, appSecret, new OkHttpClient.Builder()
@@ -42,6 +43,10 @@ public class QqOfficialTokenManager {
         this.appSecret = appSecret;
         this.httpClient = httpClient;
         this.objectMapper = new ObjectMapper();
+    }
+
+    public void setOnRefreshedCallback(Runnable callback) {
+        this.onRefreshedCallback = callback;
     }
 
     public void start() {
@@ -91,6 +96,11 @@ public class QqOfficialTokenManager {
                     int expiresIn = json.get("expires_in").asInt(7200);
                     this.expiresAtMs = System.currentTimeMillis() + expiresIn * 1000L;
                     log.info("QQ official token refreshed, expires in {}s", expiresIn);
+                    if (onRefreshedCallback != null) {
+                        try { onRefreshedCallback.run(); } catch (Exception e) {
+                            log.warn("Token refreshed callback failed", e);
+                        }
+                    }
                     return this.accessToken;
                 }
             } catch (Exception e) {

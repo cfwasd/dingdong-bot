@@ -40,8 +40,9 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return cultivationTool.startCultivation(
+        String result = cultivationTool.startCultivation(
             String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, result);
     }
 
     @OnGroupMessage
@@ -51,8 +52,8 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return cultivationTool.cultivate(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, cultivationTool.cultivate(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
@@ -62,8 +63,8 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return cultivationTool.breakthrough(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, cultivationTool.breakthrough(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
@@ -73,8 +74,8 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return cultivationTool.dujie(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, cultivationTool.dujie(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
@@ -84,15 +85,15 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return cultivationTool.cultivationStatus(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, cultivationTool.cultivationStatus(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
     @Command(value = "/修仙排行", description = "本群修仙排名")
     public String cultivationRanking(ChannelEvent event) {
         long groupId = resolveGroupId(event);
-        return cultivationTool.cultivationRanking(String.valueOf(groupId));
+        return wrapWithKeyboard(event, cultivationTool.cultivationRanking(String.valueOf(groupId)));
     }
 
     @OnGroupMessage
@@ -108,6 +109,99 @@ public class CultivationBot {
         }
         // OneBot/NapCat 渠道：使用纯文本格式（不支持 markdown 渲染）
         return buildPlainTextMenu();
+    }
+
+    /**
+     * 【实验】QQ 官方渠道专属：带按钮的 Markdown 面板。
+     * 点击按钮会在输入框填入对应指令，用户发送后触发。
+     */
+    @OnGroupMessage
+    @OnPrivateMessage
+    @Command(value = "/修仙面板", description = "【QQ官方】带按钮的修仙面板")
+    public String cultivationPanel(ChannelEvent event) {
+        if (!"qqofficial".equals(event.getChannelId())) {
+            return "💡 此功能仅在 QQ 官方渠道可用~\n请使用 `/修仙菜单` 查看指令";
+        }
+        if (!(event instanceof com.dingdong.channel.api.ChannelMessageEvent chMsg)
+                || chMsg.getApi() == null) {
+            return "❌ 面板发送失败";
+        }
+
+        // 构建带按钮的 Markdown 内容
+        String markdown = """
+            **════ 修仙面板 ════**
+
+            💡 **新用户请先点击「🎋 开始修仙」按钮！**
+            点击下方按钮快速操作 👇
+            """;
+
+        // 构建 keyboard JSON
+        String keyboardJson = buildCultivationKeyboard();
+
+        // 尝试调用 QQ 官方专用方法发送（通过反射避免模块间循环依赖）
+        boolean sent = false;
+        try {
+            Object api = chMsg.getApi();
+            java.lang.reflect.Method m = api.getClass().getMethod("replyWithKeyboard", String.class, String.class);
+            m.invoke(api, markdown, keyboardJson);
+            sent = true;
+        } catch (NoSuchMethodException e) {
+            log.debug("replyWithKeyboard not available, fallback to plain markdown");
+        } catch (Exception e) {
+            log.warn("replyWithKeyboard failed, fallback to plain markdown", e);
+        }
+        if (!sent) {
+            chMsg.getApi().reply(markdown);
+        }
+        return null;
+    }
+
+    private String buildCultivationKeyboard() {
+        // QQ 官方按钮 keyboard 格式
+        // style: 0=灰色, 1=蓝色(醒目)
+        // action.type: 2=在输入框填入指令（用户需手动发送）
+        return """
+            {"content":{"rows":[
+              {"buttons":[
+                {"render_data":{"label":"🎋 开始修仙","style":1},"action":{"type":2,"permission":{"type":2},"data":"/修仙"}},
+                {"render_data":{"label":"🗡️ 修炼","style":1},"action":{"type":2,"permission":{"type":2},"data":"/修炼"}},
+                {"render_data":{"label":"📊 修仙状态","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙状态"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"⚡ 突破","style":0},"action":{"type":2,"permission":{"type":2},"data":"/突破"}},
+                {"render_data":{"label":"🌩️ 渡劫","style":0},"action":{"type":2,"permission":{"type":2},"data":"/渡劫"}},
+                {"render_data":{"label":"💊 丹药商店","style":0},"action":{"type":2,"permission":{"type":2},"data":"/丹药商店"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"📅 签到","style":0},"action":{"type":2,"permission":{"type":2},"data":"/签到"}},
+                {"render_data":{"label":"🔮 运势","style":0},"action":{"type":2,"permission":{"type":2},"data":"/运势"}},
+                {"render_data":{"label":"🏯 宗门状态","style":0},"action":{"type":2,"permission":{"type":2},"data":"/宗门状态"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"💒 婚姻面板","style":1},"action":{"type":2,"permission":{"type":2},"data":"/婚姻面板"}},
+                {"render_data":{"label":"❤️ 我的CP","style":0},"action":{"type":2,"permission":{"type":2},"data":"/我的CP"}},
+                {"render_data":{"label":"💋 双修","style":0},"action":{"type":2,"permission":{"type":2},"data":"/双修"}}
+              ]}
+            ]}}
+            """.replaceAll("\\s*\\n\\s*", "");
+    }
+
+    private String buildPillShopKeyboard() {
+        // 丹药商店专用按钮：每个按钮直接填入「购买 丹药名」
+        return """
+            {"content":{"rows":[
+              {"buttons":[
+                {"render_data":{"label":"💊 购买 培元丹","style":1},"action":{"type":2,"permission":{"type":2},"data":"/购买 培元丹"}},
+                {"render_data":{"label":"💊 购买 筑基丹","style":0},"action":{"type":2,"permission":{"type":2},"data":"/购买 筑基丹"}},
+                {"render_data":{"label":"💊 购买 渡劫丹","style":0},"action":{"type":2,"permission":{"type":2},"data":"/购买 渡劫丹"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"💊 购买 疗伤丹","style":0},"action":{"type":2,"permission":{"type":2},"data":"/购买 疗伤丹"}},
+                {"render_data":{"label":"💊 购买 还魂丹","style":0},"action":{"type":2,"permission":{"type":2},"data":"/购买 还魂丹"}},
+                {"render_data":{"label":"📊 修仙状态","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙状态"}}
+              ]}
+            ]}}
+            """.replaceAll("\\s*\\n\\s*", "");
     }
 
     private String buildMarkdownMenu() {
@@ -224,7 +318,6 @@ public class CultivationBot {
         // QQ 官方渠道：API 不推送 @ 信息，从 content 中解析目标名字
         if (targetId == 0 && "qqofficial".equals(event.getChannelId())) {
             if (!targetName.isBlank()) {
-                // 用名字 hash 作为稳定的 targetId（确保 > 0）
                 targetId = Math.abs(targetName.hashCode());
                 if (targetId == 0) targetId = 1;
                 log.debug("[QQ官方/切磋] 从文本解析目标: name={}, hashId={}", targetName, targetId);
@@ -233,9 +326,9 @@ public class CultivationBot {
             }
         }
 
-        return cultivationTool.sparInitiate(
+        return wrapWithKeyboard(event, cultivationTool.sparInitiate(
             String.valueOf(userId), String.valueOf(groupId), userName,
-            String.valueOf(targetId), targetName);
+            String.valueOf(targetId), targetName));
     }
 
     @OnGroupMessage
@@ -244,8 +337,8 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return cultivationTool.sparAccept(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, cultivationTool.sparAccept(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
@@ -255,8 +348,8 @@ public class CultivationBot {
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
         if (sectName == null || sectName.isBlank()) return "❌ 请输入宗门名称！如：创建宗门 青云宗";
-        return sectTool.createSect(
-            String.valueOf(userId), String.valueOf(groupId), userName, sectName.trim());
+        return wrapWithKeyboard(event, sectTool.createSect(
+            String.valueOf(userId), String.valueOf(groupId), userName, sectName.trim()));
     }
 
     @OnGroupMessage
@@ -266,8 +359,8 @@ public class CultivationBot {
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
         if (sectName == null || sectName.isBlank()) return "❌ 请输入宗门名称！如：加入宗门 青云宗";
-        return sectTool.joinSect(
-            String.valueOf(userId), String.valueOf(groupId), userName, sectName.trim());
+        return wrapWithKeyboard(event, sectTool.joinSect(
+            String.valueOf(userId), String.valueOf(groupId), userName, sectName.trim()));
     }
 
     @OnGroupMessage
@@ -276,8 +369,8 @@ public class CultivationBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return sectTool.leaveSect(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, sectTool.leaveSect(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
@@ -305,8 +398,8 @@ public class CultivationBot {
             }
         }
 
-        return sectTool.kickMember(
-            String.valueOf(userId), String.valueOf(groupId), String.valueOf(targetId), targetName);
+        return wrapWithKeyboard(event, sectTool.kickMember(
+            String.valueOf(userId), String.valueOf(groupId), String.valueOf(targetId), targetName));
     }
 
     @OnGroupMessage
@@ -316,8 +409,8 @@ public class CultivationBot {
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
         if (amount == null || amount.isBlank()) return "❌ 请输入捐献数量！如：捐献 100";
-        return sectTool.donateSect(
-            String.valueOf(userId), String.valueOf(groupId), userName, amount.trim());
+        return wrapWithKeyboard(event, sectTool.donateSect(
+            String.valueOf(userId), String.valueOf(groupId), userName, amount.trim()));
     }
 
     @OnGroupMessage
@@ -325,21 +418,42 @@ public class CultivationBot {
     public String sectStatus(ChannelEvent event) {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
-        return sectTool.sectStatus(String.valueOf(userId), String.valueOf(groupId));
+        return wrapWithKeyboard(event, sectTool.sectStatus(String.valueOf(userId), String.valueOf(groupId)));
     }
 
     @OnGroupMessage
     @Command(value = "/宗门排行", description = "群内宗门排名")
     public String sectRanking(ChannelEvent event) {
         long groupId = resolveGroupId(event);
-        return sectTool.sectRanking(String.valueOf(groupId));
+        return wrapWithKeyboard(event, sectTool.sectRanking(String.valueOf(groupId)));
     }
 
     @OnGroupMessage
     @OnPrivateMessage
     @Command(value = "/丹药商店", description = "查看丹药/价格")
-    public String pillShop() {
-        return pillShopTool.pillShop();
+    public String pillShop(ChannelEvent event) {
+        String text = pillShopTool.pillShop();
+        // QQ 官方渠道：发送带丹药购买按钮的面板
+        if ("qqofficial".equals(event.getChannelId())
+                && event instanceof ChannelMessageEvent chMsg
+                && chMsg.getApi() != null) {
+            String markdown = text.replaceAll("(?m)^", "> ").trim();
+            String keyboardJson = buildPillShopKeyboard();
+            boolean sent = false;
+            try {
+                Object api = chMsg.getApi();
+                java.lang.reflect.Method m = api.getClass().getMethod("replyWithKeyboard", String.class, String.class);
+                m.invoke(api, markdown, keyboardJson);
+                sent = true;
+            } catch (Exception e) {
+                log.debug("replyWithKeyboard failed for pill shop", e);
+            }
+            if (!sent) {
+                chMsg.getApi().reply(text);
+            }
+            return null;
+        }
+        return text;
     }
 
     @OnGroupMessage
@@ -350,8 +464,36 @@ public class CultivationBot {
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
         if (pillName == null || pillName.isBlank()) return "❌ 请输入丹药名称！如：购买 培元丹\n💡 说\"丹药商店\"查看所有丹药";
-        return pillShopTool.buyPill(
-            String.valueOf(userId), String.valueOf(groupId), userName, pillName.trim());
+        return wrapWithKeyboard(event, pillShopTool.buyPill(
+            String.valueOf(userId), String.valueOf(groupId), userName, pillName.trim()));
+    }
+
+    /**
+     * QQ 官方渠道下，将文本结果和按钮面板一起发送。
+     * OneBot 渠道直接返回文本。
+     */
+    private String wrapWithKeyboard(ChannelEvent event, String text) {
+        if (text == null || !"qqofficial".equals(event.getChannelId())) return text;
+        if (!(event instanceof ChannelMessageEvent chMsg) || chMsg.getApi() == null) return text;
+
+        String markdown = text.replaceAll("(?m)^", "> ").trim();
+        String keyboardJson = buildCultivationKeyboard();
+
+        boolean sent = false;
+        try {
+            Object api = chMsg.getApi();
+            java.lang.reflect.Method m = api.getClass().getMethod("replyWithKeyboard", String.class, String.class);
+            m.invoke(api, markdown, keyboardJson);
+            sent = true;
+        } catch (NoSuchMethodException e) {
+            log.debug("replyWithKeyboard not available, fallback to plain text");
+        } catch (Exception e) {
+            log.warn("replyWithKeyboard failed, fallback to plain text", e);
+        }
+        if (!sent) {
+            chMsg.getApi().reply(text);
+        }
+        return null;
     }
 
     private long resolveUserId(ChannelEvent event) {

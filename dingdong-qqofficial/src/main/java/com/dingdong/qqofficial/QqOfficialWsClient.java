@@ -24,19 +24,23 @@ public class QqOfficialWsClient extends WebSocketClient {
 
     private final ObjectMapper objectMapper;
     private final Consumer<JsonNode> eventHandler;
+    private final java.util.function.BiConsumer<Integer, String> closeCallback;
     private final int intents;
     private final String token;
     private ScheduledExecutorService heartbeatScheduler;
     private ScheduledFuture<?> heartbeatFuture;
     private volatile boolean identified;
 
-    public QqOfficialWsClient(URI serverUri, String token, int intents, Consumer<JsonNode> eventHandler) {
+    public QqOfficialWsClient(URI serverUri, String token, int intents,
+                               Consumer<JsonNode> eventHandler,
+                               java.util.function.BiConsumer<Integer, String> closeCallback) {
         super(serverUri);
         addHeader("Authorization", "QQBot " + token);
         this.token = token;
         this.intents = intents;
         this.objectMapper = new ObjectMapper();
         this.eventHandler = eventHandler;
+        this.closeCallback = closeCallback;
     }
 
     @Override
@@ -129,6 +133,11 @@ public class QqOfficialWsClient extends WebSocketClient {
         identified = false;
         if (heartbeatFuture != null) heartbeatFuture.cancel(false);
         if (heartbeatScheduler != null) heartbeatScheduler.shutdownNow();
+        if (closeCallback != null) {
+            try { closeCallback.accept(code, reason); } catch (Exception e) {
+                log.warn("Close callback error", e);
+            }
+        }
     }
 
     @Override

@@ -87,6 +87,42 @@ public class QqOfficialApi {
         }
     }
 
+    public JsonNode sendGroupMarkdownWithKeyboard(String groupOpenid, String markdownContent,
+                                                     String keyboardJson, String msgId) throws IOException {
+        return sendMarkdownWithKeyboard("/v2/groups/" + groupOpenid + "/messages", markdownContent, keyboardJson, msgId);
+    }
+
+    public JsonNode sendC2cMarkdownWithKeyboard(String userOpenid, String markdownContent,
+                                                   String keyboardJson, String msgId) throws IOException {
+        return sendMarkdownWithKeyboard("/v2/users/" + userOpenid + "/messages", markdownContent, keyboardJson, msgId);
+    }
+
+    private JsonNode sendMarkdownWithKeyboard(String path, String markdownContent,
+                                               String keyboardJson, String msgId) throws IOException {
+        int seq = msgSeqCounter.incrementAndGet();
+        java.util.Map<String, Object> bodyMap = new java.util.LinkedHashMap<>();
+        bodyMap.put("msg_type", 2);
+        bodyMap.put("markdown", Map.of("content", markdownContent));
+        bodyMap.put("keyboard", objectMapper.readTree(keyboardJson));
+        bodyMap.put("msg_id", msgId);
+        bodyMap.put("msg_seq", seq);
+
+        String body = objectMapper.writeValueAsString(bodyMap);
+        Request request = new Request.Builder()
+                .url(baseUrl() + path)
+                .post(RequestBody.create(body, MediaType.get("application/json")))
+                .header("Authorization", authHeader())
+                .header("X-Union-Appid", appId)
+                .build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                throw new IOException("Send markdown+keyboard failed: " + response.code() + " " + respBody);
+            }
+            return objectMapper.readTree(respBody);
+        }
+    }
+
     public JsonNode sendGroupMarkdownMessage(String groupOpenid, String markdownContent, String msgId) throws IOException {
         return sendMarkdownMessage("/v2/groups/" + groupOpenid + "/messages", markdownContent, msgId);
     }

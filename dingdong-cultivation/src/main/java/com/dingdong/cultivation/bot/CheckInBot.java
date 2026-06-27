@@ -26,8 +26,8 @@ public class CheckInBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return checkInTool.checkin(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, checkInTool.checkin(
+            String.valueOf(userId), String.valueOf(groupId), userName));
     }
 
     @OnGroupMessage
@@ -37,8 +37,52 @@ public class CheckInBot {
         long userId = resolveUserId(event);
         long groupId = resolveGroupId(event);
         String userName = resolveUserName(event);
-        return checkInTool.status(
-            String.valueOf(userId), String.valueOf(groupId), userName);
+        return wrapWithKeyboard(event, checkInTool.status(
+            String.valueOf(userId), String.valueOf(groupId), userName));
+    }
+
+    /**
+     * QQ 官方渠道下，将文本结果和按钮面板一起发送。
+     */
+    private String wrapWithKeyboard(ChannelEvent event, String text) {
+        if (text == null || !"qqofficial".equals(event.getChannelId())) return text;
+        if (!(event instanceof ChannelMessageEvent chMsg) || chMsg.getApi() == null) return text;
+
+        String markdown = text.replaceAll("(?m)^", "> ").trim();
+        String keyboardJson = buildCheckInKeyboard();
+
+        boolean sent = false;
+        try {
+            Object api = chMsg.getApi();
+            java.lang.reflect.Method m = api.getClass().getMethod("replyWithKeyboard", String.class, String.class);
+            m.invoke(api, markdown, keyboardJson);
+            sent = true;
+        } catch (NoSuchMethodException e) {
+            // fallback
+        } catch (Exception e) {
+            // fallback
+        }
+        if (!sent) {
+            chMsg.getApi().reply(text);
+        }
+        return null;
+    }
+
+    private String buildCheckInKeyboard() {
+        return """
+            {"content":{"rows":[
+              {"buttons":[
+                {"render_data":{"label":"📅 签到","style":1},"action":{"type":2,"permission":{"type":2},"data":"/签到"}},
+                {"render_data":{"label":"🔮 运势","style":0},"action":{"type":2,"permission":{"type":2},"data":"/运势"}},
+                {"render_data":{"label":"📊 修仙状态","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修仙状态"}}
+              ]},
+              {"buttons":[
+                {"render_data":{"label":"🗡️ 修炼","style":0},"action":{"type":2,"permission":{"type":2},"data":"/修炼"}},
+                {"render_data":{"label":"💊 丹药商店","style":0},"action":{"type":2,"permission":{"type":2},"data":"/丹药商店"}},
+                {"render_data":{"label":"❤️ 我的CP","style":0},"action":{"type":2,"permission":{"type":2},"data":"/我的CP"}}
+              ]}
+            ]}}
+            """.replaceAll("\\s*\\n\\s*", "");
     }
 
     private long resolveUserId(ChannelEvent event) {

@@ -57,6 +57,27 @@ public class QqOfficialReplySender implements MessageSender {
         });
     }
 
+    /**
+     * 发送带按钮键盘的 Markdown 消息（QQ 官方渠道专用）。
+     * @param markdownContent Markdown 内容
+     * @param keyboardJson    keyboard 的 JSON 字符串，格式：{"content":{"rows":[{"buttons":[...]}]}}
+     */
+    public CompletableFuture<MessageResult> replyWithKeyboard(String markdownContent, String keyboardJson) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (isGroup) {
+                    channel.getApi().sendGroupMarkdownWithKeyboard(groupOpenid, markdownContent, keyboardJson, msgId);
+                } else {
+                    channel.getApi().sendC2cMarkdownWithKeyboard(userOpenid, markdownContent, keyboardJson, msgId);
+                }
+                return MessageResult.ok(msgId);
+            } catch (IOException e) {
+                log.warn("QqOfficialReplySender replyWithKeyboard failed", e);
+                return MessageResult.fail(e.getMessage());
+            }
+        });
+    }
+
     @Override
     public CompletableFuture<MessageResult> sendTo(ChannelMessageTarget target, String text) {
         if (target.isGroup()) return sendGroupMessage(target.getGroup(), text);

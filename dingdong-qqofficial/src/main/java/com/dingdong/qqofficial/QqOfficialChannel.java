@@ -7,6 +7,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -24,6 +28,8 @@ public class QqOfficialChannel implements BotChannel {
     private volatile boolean running;
     private QqOfficialWsClient wsClient;
     private QqOfficialDispatcher.AgentInvoker agentInvoker;
+    private ScheduledExecutorService reconnectScheduler;
+    private final AtomicInteger reconnectAttempts = new AtomicInteger(0);
 
     public QqOfficialChannel(QqOfficialProperties properties) {
         this.properties = properties;
@@ -55,6 +61,18 @@ public class QqOfficialChannel implements BotChannel {
             return;
         }
 
+        // Token 刷新后触发重连（新 token 需要重新建 WS 连接）
+        tokenManager.setOnRefreshedCallback(() -> {
+            log.info("Token refreshed, reconnecting WebSocket...");
+            doReconnect();
+        });
+
+        running = true;
+        connectWs();
+    }
+
+    private synchronized void connectWs() {
+        if (!running) return;
         try {
             String gatewayUrl = api.getGatewayUrl();
             log.info("QQ Official gateway URL: {}", gatewayUrl);
@@ -63,18 +81,54 @@ public class QqOfficialChannel implements BotChannel {
             QqOfficialDispatcher dispatcher = new QqOfficialDispatcher(this, consumer, agentInvoker);
 
             wsClient = new QqOfficialWsClient(new URI(gatewayUrl), tokenManager.getToken(),
-                    properties.getIntents(), dispatcher);
+                    properties.getIntents(), dispatcher, this::onWsClose);
             wsClient.connect();
-            running = true;
-            log.info("QQ Official channel started (WS connecting...)");
+            reconnectAttempts.set(0);
+            log.info("QQ Official WS connecting...");
         } catch (Exception e) {
-            log.error("Failed to start QQ Official WS client", e);
+            log.error("Failed to connect QQ Official WS", e);
+            scheduleReconnect();
         }
+    }
+
+    private void onWsClose(int code, String reason) {
+        if (!running) return;
+        log.warn("QQ Official WS closed, scheduling reconnect... code={}, reason={}", code, reason);
+        scheduleReconnect();
+    }
+
+    private void scheduleReconnect() {
+        if (!running || reconnectScheduler != null) return;
+        reconnectScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "qq-official-reconnect");
+            t.setDaemon(true);
+            return t;
+        });
+        int attempt = reconnectAttempts.incrementAndGet();
+        long delay = Math.min(attempt * 5L, 60L); // 5s, 10s, 15s... max 60s
+        log.info("QQ Official WS reconnect scheduled in {}s (attempt {})", delay, attempt);
+        reconnectScheduler.schedule(() -> {
+            reconnectScheduler.shutdownNow();
+            reconnectScheduler = null;
+            connectWs();
+        }, delay, TimeUnit.SECONDS);
+    }
+
+    private synchronized void doReconnect() {
+        if (wsClient != null) {
+            try { wsClient.closeBlocking(); } catch (Exception ignored) {}
+        }
+        connectWs();
     }
 
     @Override
     public void stop() {
         running = false;
+        tokenManager.setOnRefreshedCallback(null);
+        if (reconnectScheduler != null) {
+            reconnectScheduler.shutdownNow();
+            reconnectScheduler = null;
+        }
         if (wsClient != null) {
             try { wsClient.closeBlocking(); } catch (Exception e) { log.warn("WS close error", e); }
         }
