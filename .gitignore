@@ -1,10 +1,10 @@
 # 本地配置文件
-napcat-admin/src/main/resources/application-local.yml
-napcat-admin/src/main/resources/application-dev.yml
-napcat-admin/src/main/resources/application-prod.yml
+dingdong-admin/src/main/resources/application-local.yml
+dingdong-admin/src/main/resources/application-dev.yml
+dingdong-admin/src/main/resources/application-prod.yml
 
-# 如果希望完全忽略 application.yml，只使用模板
-napcat-admin/src/main/resources/application.yml
+# 忽略 application.yml（使用 application.example.yml 作为模板）
+dingdong-admin/src/main/resources/application.yml
 # Maven/Gradle build output
 **/target/
 
