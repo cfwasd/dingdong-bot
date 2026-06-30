@@ -12,13 +12,16 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * QQ 官方 Token 管理器。
- * 自动获取和刷新 access_token，在过期前 5 分钟自动刷新。
+ * 自动获取和刷新 access_token。
+ * QQ 官方仅在 token 过期前最后 60 秒内返回新 token，
+ * 因此刷新时机设为过期前 50 秒（留 10 秒网络缓冲）。
  */
 @Slf4j
 public class QqOfficialTokenManager {
 
     private static final String TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken";
-    private static final long REFRESH_MARGIN_MS = 5 * 60 * 1000L;
+    /** 刷新提前量：50 秒（官方窗口为最后 60 秒，留 10 秒缓冲） */
+    private static final long REFRESH_MARGIN_MS = 50 * 1000L;
 
     private final String appId;
     private final String appSecret;
