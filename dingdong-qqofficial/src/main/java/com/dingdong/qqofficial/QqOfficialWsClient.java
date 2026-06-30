@@ -25,6 +25,8 @@ public class QqOfficialWsClient extends WebSocketClient {
     private final ObjectMapper objectMapper;
     private final Consumer<JsonNode> eventHandler;
     private final java.util.function.BiConsumer<Integer, String> closeCallback;
+    /** Identify 发送完成后触发（此时服务端会话正式建立），用于启动主动重连定时器 */
+    private volatile Runnable onIdentify;
     private final int intents;
     private final String token;
     private ScheduledExecutorService heartbeatScheduler;
@@ -45,6 +47,11 @@ public class QqOfficialWsClient extends WebSocketClient {
         this.objectMapper = new ObjectMapper();
         this.eventHandler = eventHandler;
         this.closeCallback = closeCallback;
+    }
+
+    /** 注册 Identify 发送完成后的回调（此时服务端会话正式建立） */
+    public void setOnIdentify(Runnable onIdentify) {
+        this.onIdentify = onIdentify;
     }
 
     @Override
@@ -78,6 +85,10 @@ public class QqOfficialWsClient extends WebSocketClient {
                     log.info("QQ Official WS received Hello, heartbeat_interval={}ms, sending Identify...", heartbeatInterval);
                     sendIdentify();
                     startHeartbeat(heartbeatInterval);
+                    // Identify 已发送，服务端会话正式建立，触发回调（用于启动主动重连定时器）
+                    if (onIdentify != null) {
+                        try { onIdentify.run(); } catch (Exception e) { log.warn("onIdentify callback error", e); }
+                    }
                     break;
                 }
                 case 11: // Heartbeat ACK

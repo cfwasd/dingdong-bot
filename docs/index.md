@@ -29,10 +29,10 @@ features:
   - icon: 🌐
     title: 双渠道支持
     details: 同时支持 QQ 官方 API v2（Markdown + 按钮面板）和 NapCat OneBot11 协议（WebSocket/HTTP）。
-  - icon: 🔧
-    title: 高度可扩展
-    details: 组合注解、自定义适配器、插件化设计，满足复杂业务场景需求。
-  - icon: ⚡
-    title: 轻量高效
-    details: 事件驱动架构，高性能路由，内存占用低，轻松支撑高并发消息处理。
+  - icon: ⚔️
+    title: 修仙 RPG 系统
+    details: 完整的群聊修仙游戏，含境界突破、渡劫、切磋战斗、宗门系统、丹药商店、双修联动，离线也有修为收益。
+  - icon: 🎲
+    title: 群聊娱乐工具
+    details: 内置掷骰子、塔罗牌、漂流瓶、真心话大冒险、猜数字、猜拳、猜谜语、绕口令、惩罚转盘、表情包等 20+ 娱乐工具。
 ---

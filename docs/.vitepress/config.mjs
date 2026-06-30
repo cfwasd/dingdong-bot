@@ -33,6 +33,8 @@ export default defineConfig({
           { text: '通信适配器', link: '/05-adapter-guide' },
           { text: 'Agent 指南', link: '/06-agent-guide' },
           { text: '内部架构', link: '/07-internal-architecture' },
+          { text: '功能指南', link: '/08-features' },
+          { text: 'Agent 工具集', link: '/09-agent-tools' },
         ],
       },
     ],

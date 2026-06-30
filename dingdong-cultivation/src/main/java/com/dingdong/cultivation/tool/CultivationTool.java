@@ -48,9 +48,16 @@ public class CultivationTool {
         if (tableReady) return;
         synchronized (this) {
             if (tableReady) return;
-            try (Connection conn = dbManager.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(cultivationUsersDdl())) {
-                stmt.execute();
+            try (Connection conn = dbManager.getConnection()) {
+                // 创建表
+                try (PreparedStatement stmt = conn.prepareStatement(cultivationUsersDdl())) {
+                    stmt.execute();
+                }
+                // 兜底：如果旧表缺少复合主键/唯一索引，补充创建
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS idx_cultivation_user_group ON cultivation_users(user_id, group_id)")) {
+                    stmt.execute();
+                }
                 tableReady = true;
             } catch (Exception e) {
                 log.error("Failed to create cultivation_users table", e);
@@ -568,7 +575,10 @@ public class CultivationTool {
             CultivationUser user = loadUser(conn, userId, groupId);
             if (user == null) return "🤔 " + uName + " 你还没开启修仙之路！说\"修仙\"开始吧~";
 
-            // 动态计算被动修为收益（离线/后台收益）
+            // 动态计算待结算的被动修为收益（离线/后台收益）
+            // 注意：此处只展示，不结算、不修改 lastCultivateTime。
+            // 查询状态若改写时间戳，会重置修炼 CD 并清空已累积的离线时间（bug）。
+            // 实际结算在 cultivate 中进行：先算收益，再覆盖时间。
             int passiveGain = 0;
             if (user.lastCultivateTime != null && !user.lastCultivateTime.isEmpty()) {
                 LocalDateTime lastTime = LocalDateTime.parse(user.lastCultivateTime, ISO_FMT);
@@ -577,21 +587,22 @@ public class CultivationTool {
                 passiveGain = (int) (hoursPassed * user.rootBone * realmCoeff(user.realm) * 0.5);
             }
 
-            // 应用加成并更新
+            // 应用加成（仅用于展示待结算数值）
             double bonusMultiplier = 1.0;
             if (user.hasReborn) bonusMultiplier += 0.2;
             if (user.isInjured) bonusMultiplier -= 0.5;
             passiveGain = (int) (passiveGain * bonusMultiplier);
 
-            if (passiveGain > 0) {
-                user.cultivation += passiveGain;
-                user.lastCultivateTime = now(); // 结算后更新时间戳
-                saveUser(conn, user);
-            }
-
             int realmIdx = getRealmIndex(user.realm);
             int nextCost = getCultivationCost(realmIdx, user.subLevel);
             String realmFull = realmDisplayName(user.realm, user.subLevel);
+
+            // 计算距离上次修炼的时间（用于显示）
+            long minutesSinceLast = 0;
+            if (user.lastCultivateTime != null && !user.lastCultivateTime.isEmpty()) {
+                LocalDateTime lastTime = LocalDateTime.parse(user.lastCultivateTime, ISO_FMT);
+                minutesSinceLast = ChronoUnit.MINUTES.between(lastTime, LocalDateTime.now());
+            }
 
             StringBuilder sb = new StringBuilder();
             sb.append("📋 ").append(uName).append(" 的修仙面板\n\n");
@@ -599,7 +610,7 @@ public class CultivationTool {
             sb.append("🏅 境界：").append(realmFull).append("\n");
             sb.append("💎 修为：").append(user.cultivation).append(" / ").append(nextCost);
             if (user.subLevel >= 4) sb.append("（满，可渡劫）");
-            else if (passiveGain > 0) sb.append("（含离线收益 +").append(passiveGain).append("）");
+            else if (passiveGain > 0) sb.append("（含待结算离线收益 +").append(passiveGain).append("）");
             sb.append("\n━━━━━━━━━━━━━━\n");
             sb.append("🦴 根骨：").append(user.rootBone).append("（修炼效率）\n");
             sb.append("🍀 气运：").append(user.luck).append("（渡劫/奇遇）\n");
@@ -611,6 +622,16 @@ public class CultivationTool {
             if (user.hasReborn) sb.append("🌟 轮回印记：修炼效率+20%\n");
             if (user.hasTribulationPill) sb.append("💊 持有渡劫丹（下次渡劫气运+20%）\n");
             if (user.hasRebirthPill) sb.append("💊 持有还魂丹（渡劫失败免转世）\n");
+            // 离线收益结算提示
+            if (passiveGain > 0) {
+                sb.append("⏳ 待结算离线收益：+").append(passiveGain).append(" 修为（修炼时自动结算）\n");
+            } else if (minutesSinceLast > 0) {
+                if (minutesSinceLast < 60) {
+                    sb.append("⏳ 距离上次修炼 ").append(minutesSinceLast).append(" 分钟，暂无离线收益\n");
+                } else {
+                    sb.append("✅ 离线收益已结算（如最近修炼过，收益已合并计入）\n");
+                }
+            }
 
             return sb.toString();
         } catch (Exception e) {

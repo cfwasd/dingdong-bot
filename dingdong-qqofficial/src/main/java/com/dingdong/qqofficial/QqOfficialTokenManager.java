@@ -12,13 +12,21 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * QQ 官方 Token 管理器。
- * 自动获取和刷新 access_token，在过期前 5 分钟自动刷新。
+ * 自动获取和刷新 access_token。
+ * QQ 官方仅在 token 过期前最后 60 秒内返回新 token，
+ * 因此刷新时机设为过期前 50 秒（留 10 秒网络缓冲）。
  */
 @Slf4j
 public class QqOfficialTokenManager {
 
     private static final String TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken";
-    private static final long REFRESH_MARGIN_MS = 5 * 60 * 1000L;
+    /** 刷新提前量：50 秒（官方窗口为最后 60 秒，留 10 秒缓冲） */
+    private static final long REFRESH_MARGIN_MS = 50 * 1000L;
+    /**
+     * 当 Token 剩余有效期已不足一次刷新余量时，多久（毫秒）后立即刷新。
+     * 避免"剩余有效期 < clamp 最小延迟"导致 Token 过期后仍拖到下次计划刷新。
+     */
+    private static final long IMMEDIATE_REFRESH_DELAY_MS = 1000;
 
     private final String appId;
     private final String appSecret;
@@ -118,7 +126,17 @@ public class QqOfficialTokenManager {
     }
 
     private void scheduleNextRefresh() {
-        long delay = Math.max(expiresAtMs - REFRESH_MARGIN_MS - System.currentTimeMillis(), 60000);
+        long remainingMs = expiresAtMs - System.currentTimeMillis();
+        long delay;
+        if (remainingMs <= REFRESH_MARGIN_MS) {
+            // Token 已进入（或低于）官方刷新窗口：尽快刷新，避免Token已过期仍在等计划刷新
+            // （例如重启后 API 返回旧 Token，剩余有效期可能 < 50 秒）
+            delay = IMMEDIATE_REFRESH_DELAY_MS;
+            log.warn("Token remaining {}ms <= margin {}ms, refreshing in {}ms", remainingMs, REFRESH_MARGIN_MS, delay);
+        } else {
+            // 正常情况：在过期前 REFRESH_MARGIN_MS 时触发刷新
+            delay = remainingMs - REFRESH_MARGIN_MS;
+        }
         scheduler.schedule(() -> {
             forceRefresh().thenRun(this::scheduleNextRefresh)
                     .exceptionally(ex -> {

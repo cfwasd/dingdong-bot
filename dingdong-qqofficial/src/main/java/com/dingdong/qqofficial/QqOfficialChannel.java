@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.net.URI;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -18,6 +19,14 @@ import java.util.function.Consumer;
  */
 @Slf4j
 public class QqOfficialChannel implements BotChannel {
+
+    /**
+     * 主动重连间隔：25 分钟。
+     * QQ 官方网关会在连接建立约 30 分钟后强制关闭（code=4009 Session timed out）。
+     * 为避免被服务端强制断开（用户感知掉线），在 25 分钟时主动断开并用当前 token 重连，
+     * 把不可控的 4009 断开转为可控的平滑切换。
+     */
+    private static final long PROACTIVE_RECONNECT_INTERVAL_MS = 25 * 60 * 1000L;
 
     private final QqOfficialProperties properties;
     private final QqOfficialTokenManager tokenManager;
@@ -32,6 +41,9 @@ public class QqOfficialChannel implements BotChannel {
     private final AtomicInteger reconnectAttempts = new AtomicInteger(0);
     private volatile boolean intentionallyReconnecting = false;
     private ScheduledExecutorService healthCheckScheduler;
+    /** 主动重连调度：连接建立后 PROACTIVE_RECONNECT_INTERVAL_MS 触发一次 */
+    private final ScheduledExecutorService proactiveReconnectScheduler;
+    private volatile ScheduledFuture<?> proactiveReconnectFuture;
 
     public QqOfficialChannel(QqOfficialProperties properties) {
         this.properties = properties;
@@ -39,6 +51,11 @@ public class QqOfficialChannel implements BotChannel {
         this.api = new QqOfficialApi(properties.getAppId(), tokenManager, properties.isSandbox());
         this.idMapper = new QqOfficialIdMapper();
         this.objectMapper = new ObjectMapper();
+        this.proactiveReconnectScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "qq-official-proactive-reconnect");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     @Override public String getChannelId() { return "qqofficial"; }
@@ -92,6 +109,9 @@ public class QqOfficialChannel implements BotChannel {
 
             wsClient = new QqOfficialWsClient(new URI(gatewayUrl), tokenManager.getToken(),
                     properties.getIntents(), dispatcher, this::onWsClose);
+            // Identify 发送后（服务端会话建立），启动主动重连定时器，
+            // 在服务端强制 4009 断开前主动重连，避免用户感知掉线
+            wsClient.setOnIdentify(this::scheduleProactiveReconnect);
             wsClient.connect();
             reconnectAttempts.set(0);
             log.info("QQ Official WS connecting...");
@@ -101,8 +121,29 @@ public class QqOfficialChannel implements BotChannel {
         }
     }
 
+    /**
+     * 安排主动重连：在 PROACTIVE_RECONNECT_INTERVAL_MS 后主动断开并重建连接。
+     * 仅当没有被其他重连流程（token 刷新/close 触发）抢占时才执行。
+     */
+    private void scheduleProactiveReconnect() {
+        if (!running) return;
+        synchronized (this) {
+            if (proactiveReconnectFuture != null) {
+                proactiveReconnectFuture.cancel(false);
+            }
+            proactiveReconnectFuture = proactiveReconnectScheduler.schedule(() -> {
+                log.info("Proactive reconnect triggered ({}min after identify), reconnecting before server timeout...",
+                        PROACTIVE_RECONNECT_INTERVAL_MS / 60000);
+                doReconnect();
+            }, PROACTIVE_RECONNECT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        }
+        log.info("Proactive reconnect scheduled in {}ms ({}min)", PROACTIVE_RECONNECT_INTERVAL_MS, PROACTIVE_RECONNECT_INTERVAL_MS / 60000);
+    }
+
     private void onWsClose(int code, String reason) {
         if (!running) return;
+        // 连接已关闭，主动重连定时器失去意义（会由 close 流程触发重连），取消它
+        cancelProactiveReconnect();
         if (intentionallyReconnecting) {
             log.info("WS closed due to intentional reconnect, skipping scheduled reconnect");
             return;
@@ -114,6 +155,13 @@ public class QqOfficialChannel implements BotChannel {
         }
         log.warn("QQ Official WS closed, scheduling reconnect... code={}, reason={}", code, reason);
         scheduleReconnect();
+    }
+
+    private synchronized void cancelProactiveReconnect() {
+        if (proactiveReconnectFuture != null) {
+            proactiveReconnectFuture.cancel(false);
+            proactiveReconnectFuture = null;
+        }
     }
 
     private synchronized void scheduleReconnect() {
@@ -139,8 +187,9 @@ public class QqOfficialChannel implements BotChannel {
             if (wsClient != null) {
                 try { wsClient.closeBlocking(); } catch (Exception ignored) {}
             }
-            // closeBlocking 会触发 onClose → scheduleReconnect，
+            // closeBlocking 会触发 onClose → cancelProactiveReconnect，
             // 取消这个误触发的定时重连，避免短时间内重复连接
+            cancelProactiveReconnect();
             if (reconnectScheduler != null) {
                 reconnectScheduler.shutdownNow();
                 reconnectScheduler = null;
@@ -178,6 +227,11 @@ public class QqOfficialChannel implements BotChannel {
     public void stop() {
         running = false;
         tokenManager.setOnRefreshedCallback(null);
+        // 取消主动重连定时器，避免 stop 后仍然触发重连
+        cancelProactiveReconnect();
+        if (proactiveReconnectScheduler != null) {
+            proactiveReconnectScheduler.shutdownNow();
+        }
         if (healthCheckScheduler != null) {
             healthCheckScheduler.shutdownNow();
             healthCheckScheduler = null;
