@@ -126,17 +126,7 @@ public class QqOfficialTokenManager {
     }
 
     private void scheduleNextRefresh() {
-        long remainingMs = expiresAtMs - System.currentTimeMillis();
-        long delay;
-        if (remainingMs <= REFRESH_MARGIN_MS) {
-            // Token 已进入（或低于）官方刷新窗口：尽快刷新，避免Token已过期仍在等计划刷新
-            // （例如重启后 API 返回旧 Token，剩余有效期可能 < 50 秒）
-            delay = IMMEDIATE_REFRESH_DELAY_MS;
-            log.warn("Token remaining {}ms <= margin {}ms, refreshing in {}ms", remainingMs, REFRESH_MARGIN_MS, delay);
-        } else {
-            // 正常情况：在过期前 REFRESH_MARGIN_MS 时触发刷新
-            delay = remainingMs - REFRESH_MARGIN_MS;
-        }
+        long delay = Math.max(expiresAtMs - REFRESH_MARGIN_MS - System.currentTimeMillis(), 60000);
         scheduler.schedule(() -> {
             forceRefresh().thenRun(this::scheduleNextRefresh)
                     .exceptionally(ex -> {
